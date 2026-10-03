@@ -99,3 +99,29 @@ Observed initial resources:
 - Whether a stable DNS name/domain should front the gateway.
 - TLS termination strategy.
 - Exact sudo policy for managed devices.
+
+
+## ADR-011 — Use the standard remote MCP model and OAuth 2.1
+
+**Decision:** implement the AI-facing interface as a standards-based remote MCP server over HTTPS using Streamable HTTP. Authentication should follow the MCP OAuth 2.1 authorization model rather than relying on a static Bearer token as the long-term design.
+
+**Reasoning:** current OpenAI MCP/plugin documentation supports remote MCP servers and recommends OAuth 2.1 for authenticated user-specific or write-capable services. An earlier DMARK prototype also implemented this pattern successfully enough to establish the architecture: protected-resource metadata, an OAuth authorization server, Authorization Code + PKCE, and bearer access-token validation at the MCP resource server.
+
+The Lab Gateway should preserve separation between:
+- MCP/user authentication;
+- gateway administrative SSH;
+- per-device SSH/tunnel identities.
+
+**Implementation note:** the first local prototype may temporarily use simpler authentication for isolated testing, but the public design target is OAuth 2.1.
+
+**Status:** accepted direction.
+
+## ADR-012 — Python is the preferred initial MCP server stack
+
+**Decision:** use Python 3.12 and the official MCP Python SDK for the first Lab Gateway server implementation.
+
+**Reasoning:** the gateway VM already provides Python 3.12; the official MCP SDK supports Streamable HTTP; Python keeps the service lightweight on the approximately 1 GiB VM; and the gateway's main work is orchestration of SSH, authorization and structured tools rather than a browser UI.
+
+The earlier DMARK MCP used TypeScript/Next.js and demonstrated the protocol/authentication pattern, but its Vercel/web-application constraints do not apply to this persistent Linux gateway.
+
+**Status:** accepted for prototype.
