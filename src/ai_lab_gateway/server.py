@@ -10,11 +10,23 @@ import platform
 import socket
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 mcp = MCPServer(
     "AI Lab Gateway",
     description="Remote MCP gateway for controlled access to Linux lab devices",
     version="0.1.0",
+)
+
+transport_security = TransportSecuritySettings(
+    allowed_hosts=[
+        "gateway.debasti.com",
+        "gateway.debasti.com:*",
+        "127.0.0.1",
+        "127.0.0.1:*",
+        "localhost",
+        "localhost:*",
+    ],
 )
 
 
@@ -39,6 +51,7 @@ def main() -> None:
         port=8000,
         json_response=True,
         stateless_http=True,
+        transport_security=transport_security,
     )
 
 
