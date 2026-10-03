@@ -48,3 +48,30 @@ The base Ubuntu package indexes and installed packages were then updated with `a
 ## Next
 
 Prepare a minimal development/runtime environment, decide the first MCP implementation, and establish the first controlled device tunnel.
+
+
+## 2026-10-03 — Local MCP milestone validated
+
+The first Python MCP service was validated end-to-end on the OCI gateway VM.
+
+Environment:
+- Ubuntu 24.04 LTS, x86_64
+- Python 3.12.3
+- MCP Python SDK 2.3.0
+- MCP transport: Streamable HTTP
+- Local endpoint: `http://127.0.0.1:8000/mcp`
+
+Validation:
+- MCP server started successfully under Uvicorn.
+- A separate MCP client session initialized successfully.
+- `tools/list` discovered `gateway_status`.
+- `tools/call` executed `gateway_status` successfully.
+- The response returned structured content with `status: ok`, hostname `ai-lab-gateway-01`, Python 3.12.3, and x86_64 architecture.
+- No device-control or SSH execution tools are exposed yet.
+
+Implementation note:
+- The initial skeleton used the MCP 1.x `FastMCP` API. Since the installed SDK is MCP 2.3.0, it was migrated to `MCPServer` and the project dependency was constrained to `mcp>=2,<3`.
+
+Next milestone:
+- Publish the MCP endpoint through HTTPS while keeping Uvicorn bound to localhost.
+- Add authentication before exposing device-control capabilities.
