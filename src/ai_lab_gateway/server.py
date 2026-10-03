@@ -9,12 +9,12 @@ from datetime import datetime, timezone
 import platform
 import socket
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP(
+mcp = MCPServer(
     "AI Lab Gateway",
-    stateless_http=True,
-    json_response=True,
+    description="Remote MCP gateway for controlled access to Linux lab devices",
+    version="0.1.0",
 )
 
 
@@ -33,7 +33,13 @@ def gateway_status() -> dict[str, str]:
 
 def main() -> None:
     """Run the MCP server using Streamable HTTP."""
-    mcp.run(transport="streamable-http")
+    mcp.run(
+        transport="streamable-http",
+        host="127.0.0.1",
+        port=8000,
+        json_response=True,
+        stateless_http=True,
+    )
 
 
 if __name__ == "__main__":
