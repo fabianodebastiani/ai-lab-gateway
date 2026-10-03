@@ -1,0 +1,18 @@
+[project]
+name = "ai-lab-gateway"
+version = "0.1.0"
+description = "Remote MCP gateway for controlled access to Linux lab devices"
+requires-python = ">=3.12"
+dependencies = [
+  "mcp>=1.0",
+]
+
+[project.scripts]
+ai-lab-gateway = "ai_lab_gateway.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
