@@ -125,3 +125,14 @@ The Lab Gateway should preserve separation between:
 The earlier DMARK MCP used TypeScript/Next.js and demonstrated the protocol/authentication pattern, but its Vercel/web-application constraints do not apply to this persistent Linux gateway.
 
 **Status:** accepted for prototype.
+
+
+## ADR-013 — ChatGPT Go compatibility is a product requirement
+
+**Decision:** the gateway/client integration must be designed and tested with ChatGPT Go as a required target. Compatibility with ChatGPT Free is a desirable additional target when the ChatGPT app/plugin distribution surface permits it.
+
+**Reasoning:** the intended product experience is not limited to developer-only MCP configuration. An earlier DMARK experiment established a useful precedent for exposing a remote authenticated MCP to a ChatGPT Go user. The Lab Gateway should therefore keep its MCP implementation standards-based and avoid dependencies on a single developer-only client path.
+
+**Validation:** protocol-level MCP success is necessary but not sufficient. A milestone is only complete after the relevant ChatGPT product surface can actually connect and invoke the gateway.
+
+**Status:** accepted.
