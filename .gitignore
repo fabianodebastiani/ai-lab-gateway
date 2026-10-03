@@ -1,0 +1,31 @@
+# Secrets and credentials
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# SSH material
+.ssh/
+authorized_keys
+known_hosts
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local/runtime state
+*.log
+*.pid
+data/
+state/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
