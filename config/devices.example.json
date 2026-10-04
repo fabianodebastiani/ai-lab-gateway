@@ -1,0 +1,13 @@
+{
+  "devices": [
+    {
+      "id": "raspberry-lab",
+      "name": "Raspberry Pi Lab",
+      "ssh_user": "ai-gateway",
+      "tunnel_host": "127.0.0.1",
+      "tunnel_port": 10001,
+      "identity_file": "/var/lib/ai-lab-gateway/keys/raspberry-lab",
+      "enabled": true
+    }
+  ]
+}
