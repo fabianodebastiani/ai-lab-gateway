@@ -38,3 +38,18 @@ Prototype in progress. The public HTTPS MCP path has been validated end-to-end a
 No device-control or SSH execution tools are exposed yet. The next implementation milestones are service persistence/hardening, authenticated user access, and the first reverse-SSH device tunnel.
 
 See [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md), and [docs/build-log.md](docs/build-log.md).
+
+
+## Implementation map
+
+The live public MCP endpoint is intentionally status-only while authentication
+is being completed. Repository-side work for device registry, authorization,
+reverse SSH, audit and deployment is tracked in
+[docs/implementation-status.md](docs/implementation-status.md).
+
+Prepared runbooks:
+- [Authentication](docs/authentication.md)
+- [Device tunnels](docs/device-tunnels.md)
+- [Device bootstrap](docs/bootstrap-device.md)
+- [Security model](docs/security-model.md)
+- [Deployment](docs/deployment.md)
