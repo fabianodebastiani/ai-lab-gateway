@@ -33,6 +33,8 @@ Remote devices initiate outbound SSH connections to the gateway. This avoids req
 
 ## Status
 
-Early prototype / architecture phase. The first public gateway VM has been provisioned and SSH administration has been validated.
+Prototype in progress. The public HTTPS MCP path has been validated end-to-end at `https://gateway.debasti.com/mcp`: TLS termination through Caddy, MCP initialization, tool discovery, and a real `gateway_status` tool call all succeeded.
+
+No device-control or SSH execution tools are exposed yet. The next implementation milestones are service persistence/hardening, authenticated user access, and the first reverse-SSH device tunnel.
 
 See [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md), and [docs/build-log.md](docs/build-log.md).
