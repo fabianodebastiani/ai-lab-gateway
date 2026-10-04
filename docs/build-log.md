@@ -45,11 +45,6 @@ confirmed x86_64 architecture, roughly 1 GiB RAM and a 45 GiB root volume.
 
 The base Ubuntu package indexes and installed packages were then updated with `apt update` and `apt upgrade`.
 
-## Next
-
-Prepare a minimal development/runtime environment, decide the first MCP implementation, and establish the first controlled device tunnel.
-
-
 ## 2026-10-03 — Local MCP milestone validated
 
 The first Python MCP service was validated end-to-end on the OCI gateway VM.
@@ -72,6 +67,40 @@ Validation:
 Implementation note:
 - The initial skeleton used the MCP 1.x `FastMCP` API. Since the installed SDK is MCP 2.3.0, it was migrated to `MCPServer` and the project dependency was constrained to `mcp>=2,<3`.
 
-Next milestone:
-- Publish the MCP endpoint through HTTPS while keeping Uvicorn bound to localhost.
-- Add authentication before exposing device-control capabilities.
+## 2026-10-03 — Public HTTPS MCP milestone validated
+
+The gateway was published at `gateway.debasti.com` with Cloudflare DNS in DNS-only mode. Caddy terminates public TLS on TCP 443 and reverse-proxies to the MCP service on `127.0.0.1:8000`; port 8000 remains private to the VM.
+
+During TLS bring-up, OCI network rules alone were not sufficient: the Ubuntu image's INPUT chain contained a final reject rule with only SSH allowed ahead of it. TCP 80 and 443 were inserted before that reject rule. These runtime iptables changes still need to be made persistent and reviewed as part of hardening.
+
+The first public MCP attempt reached the application but returned HTTP 421 because MCP transport security rejected the public Host header. `gateway.debasti.com` was then explicitly added to `TransportSecuritySettings.allowed_hosts`.
+
+Final public validation succeeded against:
+
+```text
+https://gateway.debasti.com/mcp
+```
+
+The external MCP client:
+- completed MCP initialization over public HTTPS;
+- discovered `gateway_status` with `tools/list`;
+- called `gateway_status` successfully;
+- received structured `status: ok` from `ai-lab-gateway-01`.
+
+This validates the path:
+
+```text
+MCP client -> Internet -> TLS/Caddy -> localhost MCP server -> tool call
+```
+
+Security observation: Internet scanners began reaching the public web endpoint shortly after TCP 80/443 were opened. Device-control tools must not be exposed before authentication/authorization is in place.
+
+### Remaining operational work
+
+- Run the MCP service under systemd rather than an interactive SSH shell.
+- Make the intended firewall policy persistent and remove accidental/unneeded exposure.
+- Review the globally listening rpcbind service (TCP/UDP 111) and disable it if unused.
+- Implement OAuth/user authentication before device-control tools.
+- Establish the first reverse-SSH tunnel from a Linux target.
+- Add device registry, user-to-device authorization, and audit logging.
+- Consider a reserved/stable public IP; the current public IPv4 was provisioned as ephemeral.
