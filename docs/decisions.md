@@ -91,14 +91,11 @@ Observed initial resources:
 
 ## Open decisions
 
-- MCP server language/framework.
-- MCP authentication/authorization mechanism.
-- Device registry storage format for the prototype.
-- Reverse tunnel lifecycle and port/address allocation.
+- OAuth provider/integration details for the MCP authentication layer.
 - Audit-log storage and retention.
-- Whether a stable DNS name/domain should front the gateway.
-- TLS termination strategy.
+- Exact gateway-side OpenSSH restrictions for tunnel-only keys.
 - Exact sudo policy for managed devices.
+- When the JSON prototype registry/authorization files should move to a database.
 
 
 ## ADR-011 — Use the standard remote MCP model and OAuth 2.1
@@ -134,5 +131,38 @@ The earlier DMARK MCP used TypeScript/Next.js and demonstrated the protocol/auth
 **Reasoning:** the intended product experience is not limited to developer-only MCP configuration. An earlier DMARK experiment established a useful precedent for exposing a remote authenticated MCP to a ChatGPT Go user. The Lab Gateway should therefore keep its MCP implementation standards-based and avoid dependencies on a single developer-only client path.
 
 **Validation:** protocol-level MCP success is necessary but not sufficient. A milestone is only complete after the relevant ChatGPT product surface can actually connect and invoke the gateway.
+
+**Status:** accepted.
+
+
+## ADR-014 — Platform users are not Linux users
+
+**Decision:** human/client identities belong to the application authentication layer. Do not create one gateway Unix account per platform user as the normal authorization model.
+
+**Reasoning:** MCP authentication establishes who is making a request; application authorization then decides which devices and actions that subject may use. Unix identities serve service, tunnel and target-isolation purposes and should not be conflated with product users.
+
+**Status:** accepted.
+
+## ADR-015 — Reverse tunnel and target login use separate SSH identities
+
+**Decision:** each managed device has a device-specific identity for opening its outbound reverse tunnel, while the gateway uses a separate management identity to authenticate to the target sshd through that tunnel.
+
+**Reasoning:** a reverse SSH forward carries TCP traffic but does not authenticate the later management session to the target sshd. Separating the two credentials gives independent revocation and avoids treating a tunnel credential as a shell credential.
+
+**Status:** accepted.
+
+## ADR-016 — Reverse-forward endpoints are loopback-only with fixed prototype ports
+
+**Decision:** reverse SSH listeners bind only to gateway loopback. The prototype registry assigns a unique fixed port to each device.
+
+**Reasoning:** the reverse ports are an internal transport detail and must not become another Internet-facing SSH surface. Fixed ports make the first implementation easy to inspect and debug; dynamic allocation can be introduced later if scale requires it.
+
+**Status:** accepted for prototype.
+
+## ADR-017 — Deny-by-default application authorization
+
+**Decision:** user-to-device/action authorization is explicit and deny-by-default. A subject must have a grant for both the target device and requested action.
+
+**Reasoning:** device access is potentially equivalent to code execution. Missing users, missing devices and missing actions must therefore fail closed.
 
 **Status:** accepted.
