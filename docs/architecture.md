@@ -2,83 +2,141 @@
 
 ## Purpose
 
-AI Lab Gateway is a control plane between an AI client and Linux devices that are not necessarily directly reachable from the Internet.
+AI Lab Gateway is a control plane between an authenticated AI client and Linux devices that are not necessarily directly reachable from the Internet.
 
 The gateway should allow an authorized AI client to perform normal development and laboratory work on a target Linux system: inspect files and logs, create or edit files, clone/pull repositories, build software, run programs and tests, inspect processes and services, and interact with locally installed hardware tools.
 
-## Initial topology
+## Topology
 
 ```text
-                 HTTPS / MCP
-+-------------+  authenticated  +--------------------+
-| AI client   | --------------> | AI Lab Gateway     |
-| / ChatGPT   |                 | public Linux VM    |
-+-------------+                 +----------+---------+
-                                           ^
-                                           |
-                                           | SSH / reverse SSH
-                                           | device initiates connection
-                                           |
-                                +----------+---------+
-                                | Linux device       |
-                                | Pi / embedded box  |
-                                +--------------------+
+                     HTTPS / MCP
++----------------+   OAuth identity    +-------------------------+
+| AI client      | ------------------> | AI Lab Gateway          |
+| / ChatGPT      |                     | public Linux VM         |
++----------------+                     |                         |
+                                       | authn -> authz          |
+                                       | device registry         |
+                                       | audit                   |
+                                       +------------+------------+
+                                                    |
+                                             loopback SSH
+                                         127.0.0.1:<device-port>
+                                                    |
+                                  reverse TCP forward carried
+                                  inside device-initiated SSH
+                                                    |
+                                       +------------v------------+
+                                       | Linux target            |
+                                       | sshd :22                 |
+                                       | Pi / embedded / server  |
+                                       +-------------------------+
 ```
 
-## Gateway responsibilities
+## Identity planes
 
-The gateway is expected to provide:
+Three identity planes remain separate:
 
-1. An authenticated MCP endpoint over HTTPS.
-2. A device registry.
-3. User-to-device authorization.
-4. SSH session/tunnel management.
-5. A small set of generic tools, initially centered on command execution and file operations.
-6. Audit information such as user/device, command, timestamp, exit code, duration, stdout and stderr where appropriate.
+1. **Platform identity.** OAuth/MCP establishes a human/client subject. The application maps that subject to allowed devices/actions. Platform users are not gateway Unix users.
+2. **Tunnel identity.** Each device has a unique SSH key used only to authenticate its outbound reverse-tunnel session to the gateway.
+3. **Target management identity.** The gateway authenticates to the target sshd, through the reverse forward, with a separate per-device management key.
 
-A possible minimal MCP surface is:
+The cloud administrator SSH identity is a fourth operational credential and is not used by normal MCP requests.
 
-- `exec(device, command, cwd, timeout)`
+## Gateway request path
+
+A future execution request follows this order:
+
+```text
+authenticated subject
+       |
+       v
+authorization check ---- deny by default
+       |
+       v
+device registry lookup
+       |
+       v
+SSH to loopback:<assigned-port>
+       |
+       v
+target sshd authentication
+       |
+       v
+bounded command
+       |
+       v
+stdout / stderr / exit code
+       |
+       +---- audit metadata
+```
+
+The SSH backend already exists as an internal module, but it is deliberately not registered as a public MCP tool until authentication and authorization are enforced.
+
+## Device registry
+
+The prototype uses a small JSON registry. A device record contains routing and non-secret metadata:
+
+- stable device ID and display name;
+- target SSH user;
+- loopback tunnel host and assigned port;
+- path to the per-device management identity;
+- enabled/disabled state.
+
+Private key material is never stored in the registry or repository. Duplicate device IDs/ports are rejected and non-loopback tunnel hosts are rejected.
+
+## Authorization
+
+The prototype policy maps an authenticated subject to explicit device/action grants. Missing subjects, devices and actions are denied.
+
+Initial action vocabulary can include:
+
+- `status`
+- `exec`
+- `read_file`
+- `write_file`
+
+This policy format is intentionally replaceable by a database later.
+
+## Reverse SSH lifecycle
+
+The target device starts and maintains an outbound SSH session to the gateway using systemd. The session requests a reverse forward such as:
+
+```text
+gateway 127.0.0.1:10001 -> target 127.0.0.1:22
+```
+
+The reverse listener is internal to the gateway. It is not exposed on a public interface. See `docs/device-tunnels.md`.
+
+## MCP surface
+
+The public MCP currently exposes only harmless `gateway_status`.
+
+After authentication/authorization integration, a minimal controlled surface may include:
+
+- `list_devices()`
+- `device_status(device)`
+- `exec(device, command, timeout)`
 - `read_file(device, path)`
 - `write_file(device, path, content)`
-- process/service status operations
 
-This is deliberately generic. Higher-level semantic tools can be added later.
+Higher-level semantic tools can be added later without changing the transport architecture.
 
-## Device side
+## Audit
 
-The initial design avoids a heavy proprietary agent. A device needs Linux, SSH and a persistent outbound connection mechanism such as systemd-managed SSH/autossh.
+Security-relevant actions should produce audit metadata. The prototype has an append-only JSONL sink for subject, device, action, result, duration and exit code. Command/stdout/stderr retention is intentionally deferred because those fields may contain secrets or personal data.
 
-Hardware-specific knowledge remains on the device. For example, a target may contain radio libraries, GPIO/SPI utilities, build systems, test scripts or vendor command-line tools. The AI can discover and operate those through documentation plus generic gateway capabilities.
+## Service boundaries
 
-## Security boundaries
+The intended public surface is HTTPS/MCP on TCP 443. Caddy terminates TLS and proxies to Uvicorn on loopback port 8000. Administrative SSH remains separate.
 
-Credentials should be separated by purpose:
-
-- cloud VM administration key;
-- per-device SSH/tunnel credentials;
-- MCP client/user authentication.
-
-A single shared SSH credential across all devices/users is explicitly not the intended model.
-
-Target access should begin with a non-root Linux account. Privileged operations, when needed, should be exposed deliberately through restricted sudo policy rather than unrestricted root access.
-
-The public surface should converge on HTTPS/MCP (typically TCP 443). Administrative SSH is separate and should be hardened.
-
-## Multi-user / multi-device direction
-
-The intended authorization relationship is conceptually:
-
-```text
-user -> permissions -> device
-```
-
-Each device has its own identity. The gateway resolves which devices a user may access before executing an operation.
+The MCP process should run as a dedicated unprivileged systemd service. Reverse-forward ports remain loopback-only. Target access defaults to a non-root `ai-gateway` account with narrowly scoped sudo only when justified.
 
 ## Out of scope for the first prototype
 
 - Full network overlay/VPN.
 - Kubernetes or other orchestration platforms.
-- A heavyweight database unless demonstrated necessary.
+- A heavyweight database before scale requires it.
 - Hardware-specific behavior embedded into the MCP protocol.
+- One Linux account per human platform user.
+- Publicly exposed reverse-forward ports.
 - Unrestricted root shell as the normal execution model.
