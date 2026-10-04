@@ -1,0 +1,10 @@
+{
+  "users": [
+    {
+      "subject": "oauth-subject-placeholder",
+      "devices": {
+        "raspberry-lab": ["status", "exec", "read_file", "write_file"]
+      }
+    }
+  ]
+}
