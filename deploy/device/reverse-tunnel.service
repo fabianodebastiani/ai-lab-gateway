@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Lab Gateway reverse SSH tunnel
+After=network-online.target ssh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai-gateway
+ExecStart=/usr/bin/ssh -NT \
+  -o BatchMode=yes \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=yes \
+  -i /home/ai-gateway/.ssh/tunnel_ed25519 \
+  -R 127.0.0.1:10001:127.0.0.1:22 \
+  tunnel@gateway.debasti.com
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
