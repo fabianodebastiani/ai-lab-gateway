@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Lab Gateway MCP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai-lab-gateway
+Group=ai-lab-gateway
+WorkingDirectory=/opt/ai-lab-gateway
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-lab-gateway/.venv/bin/ai-lab-gateway
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ai-lab-gateway
+
+[Install]
+WantedBy=multi-user.target
