@@ -40,6 +40,12 @@
   automatically during boot, recreated the gateway listener, and management
   SSH from the OCI gateway again executed successfully on the target without
   operator intervention.
+- Wrong-management-key negative test validated: an untrusted ED25519 key
+  reached the target sshd through the established tunnel but was rejected with
+  `Permission denied`, while normal host-key verification remained enforced.
+- Live application-backend timeout validated: `ssh_exec.execute()` was invoked
+  against `raspberry-lab` with a remote `sleep 10` and `timeout=2`; it raised
+  the expected gateway `TimeoutError` after 2.00 seconds.
 
 ## Implemented in repository; application integration still pending
 
