@@ -308,3 +308,23 @@ For the ChatGPT MCP integration, client discovery/registration must follow the
 OAuth/MCP interoperability supported by the client and authorization server
 (e.g. current metadata/CIMD or supported fallback), rather than inventing a
 manual Auth0 application through that API-as-application flow.
+
+
+### Google social-login smoke test
+
+The built-in Auth0 `google-oauth2` social connection was tested with Auth0's
+`Try Connection` flow. Interactive Google authentication completed
+successfully and Auth0 returned a user profile, confirming the isolated path:
+
+```text
+browser -> Auth0 -> Google authentication -> Auth0 user identity
+```
+
+The connection was still using Auth0 development keys at this milestone. Those
+keys are acceptable for prototype testing but are not the intended production
+configuration. No Gmail, Drive, Calendar, Sheets, offline-access, Token Vault,
+or other Google API scopes were enabled for the test; the connection purpose
+remained Authentication.
+
+The stable Auth0/Google subject returned by the test is sensitive account
+metadata and is intentionally not recorded in this repository.
