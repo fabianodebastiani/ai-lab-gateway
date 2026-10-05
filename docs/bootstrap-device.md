@@ -116,7 +116,7 @@ A device is not considered enrolled until all of these succeed:
 
 Only after these checks should the device be eligible for MCP control.
 
-For the first live device, items 1-8 and 11 have been validated, including a
-real target reboot with automatic systemd startup and successful end-to-end
-management SSH after boot. The explicit wrong-management-key test and
-application-level execution-timeout acceptance test remain to be completed.
+For the first live device, all 11 acceptance items have now been validated on
+the live path. This includes real reboot recovery, rejection of an untrusted
+management key, bounded application-level command timeout, and confirmation
+that the target management account has no unintended sudo/root capability.
