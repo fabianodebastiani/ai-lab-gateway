@@ -9,7 +9,7 @@ The MCP gateway is the OAuth resource server. Its canonical resource identifier
 is:
 
 ```text
-https://gateway.debasti.com
+https://gateway.debasti.com/mcp
 ```
 
 The MCP endpoint remains:
@@ -40,8 +40,8 @@ to Auth0.
 The Auth0 tenant was created as a Development tenant in the US region. A Custom
 API was created with:
 
-- Name: `AI Lab Gateway`
-- Identifier / audience: `https://gateway.debasti.com`
+- Name: `AI Lab Gateway MCP`
+- Identifier / audience: `https://gateway.debasti.com/mcp`
 - JWT profile: `Auth0`
 - JWT signing algorithm: `RS256`
 - User-delegated application access: `Per-app authorization`
@@ -123,7 +123,7 @@ can be enforced in the same request path.
 The MCP OAuth flow uses RFC 8707 `resource` to identify the target resource
 server. For the Auth0 tenant, enable **Resource Parameter Compatibility
 Profile** under Tenant Settings -> Advanced -> Settings. This makes Auth0 accept
-the MCP `resource=https://gateway.debasti.com` parameter as the target API
+the MCP `resource=https://gateway.debasti.com/mcp` parameter as the target API
 identifier/audience.
 
 This is required for a standards-compliant MCP client such as ChatGPT to obtain
@@ -134,3 +134,26 @@ Do not enable Dynamic Client Registration merely by habit. The preferred
 ChatGPT path is CIMD when supported/configured; DCR is a fallback with a broader
 tenant security impact because it permits unauthenticated client registration.
 Choose the client-registration mode deliberately during ChatGPT integration.
+
+
+## ChatGPT CIMD registration and Auth0 setup (2026-10-05)
+
+ChatGPT custom MCP integration uses Client ID Metadata Document (CIMD) registration. Enabling CIMD support in Tenant Settings is not sufficient by itself: Auth0 must also import the ChatGPT metadata document once per tenant.
+
+Reconstruction path:
+
+1. Tenant Settings -> Advanced: enable Client ID Metadata Document (CIMD) Registration. Keep DCR disabled unless CIMD cannot be used.
+2. Applications -> Applications -> Create Application -> Import from URL.
+3. Import `https://chatgpt.com/oauth/client.json`, preview it, then create the third-party CIMD application named `ChatGPT`.
+4. Applications -> APIs -> create `AI Lab Gateway MCP` with Identifier `https://gateway.debasti.com/mcp`, JWT profile `Auth0`, signing algorithm `RS256`, and per-app authorization for user-delegated and client access.
+5. In Permissions, add `gateway:read` (`Read permitted devices and gateway status`).
+6. In Application Access, edit `ChatGPT` under User-Delegated Access, select `gateway:read`, and grant access. Do not grant Client Access merely for the interactive ChatGPT flow.
+7. Keep third-party default permissions fail-closed; authorize ChatGPT explicitly.
+
+Observed diagnostics:
+
+- Before importing CIMD: `invalid_request: Unknown client: https://chatgpt.com/oauth/client.json`.
+- After CIMD import: `access_denied: Service not found: https://gateway.debasti.com/mcp`, because the original API identifier was `https://gateway.debasti.com` while MCP discovery advertised `https://gateway.debasti.com/mcp`.
+- The replacement API therefore uses the exact MCP resource URL as its Auth0 identifier/audience. Do not delete the original API until end-to-end acceptance passes.
+
+Runtime configuration must use audience `https://gateway.debasti.com/mcp` before token validation is retested. Never commit user subjects, tokens, client secrets, private keys, or other tenant secrets.
