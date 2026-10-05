@@ -66,8 +66,6 @@ public MCP tools.
 
 ## Remaining work
 
-- reconcile the generic device enrollment/systemd templates with the exact
-  restrictions validated by the first live device;
 - configure the chosen OAuth provider and cryptographic token verifier;
 - publish protected-resource metadata/challenges in the live service;
 - connect the live device registry/authorization/control plane to MCP;
