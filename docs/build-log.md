@@ -366,3 +366,17 @@ authentication and publish RFC 9728 protected-resource metadata directly using
 Auth0 signature, issuer, audience, time constraints, and scopes. The public MCP
 control surface must remain closed until these checks and deny-by-default
 device authorization are tested.
+
+
+### Auth0 JWT resource-server implementation
+
+The gateway source now implements Auth0 RS256 access-token verification and
+MCP SDK 2.x resource-server authentication. The verifier checks the JWKS
+signature, issuer, API audience, required time claims and stable subject before
+returning an MCP AccessToken. The HTTP MCP transport now requires
+`gateway:read`; SSH/device-control tools remain unexposed.
+
+PyJWT crypto support and unit tests were added for a valid RS256 token and
+rejection of wrong audience, wrong issuer and expired tokens. Production has
+not been restarted by these source changes; deployment remains an explicit
+operator step after tests pass on the VM.
