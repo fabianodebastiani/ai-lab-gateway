@@ -33,11 +33,11 @@ Remote devices initiate outbound SSH connections to the gateway. This avoids req
 
 ## Status
 
-Prototype in progress. The public HTTPS MCP path has been validated end-to-end at `https://gateway.debasti.com/mcp`: TLS termination through Caddy, MCP initialization, tool discovery, and a real `gateway_status` tool call all succeeded.
+The transport foundation is live and validated. The public HTTPS MCP endpoint works, the first remote Linux device maintains a persistent reverse-SSH tunnel through NAT, and gateway-to-device command execution has passed the complete 11-item live acceptance checklist, including reboot recovery, credential-isolation negative tests, and application-level timeout.
 
-No device-control or SSH execution tools are exposed yet. The next implementation milestones are service persistence/hardening, authenticated user access, and the first reverse-SSH device tunnel.
+The public MCP surface remains intentionally status-only. Remote execution will be exposed only after OAuth identity verification and deny-by-default subject/device/action authorization are enforced end-to-end.
 
-See [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md), and [docs/build-log.md](docs/build-log.md).
+See [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md), [docs/build-log.md](docs/build-log.md), and [docs/recovery.md](docs/recovery.md).
 
 
 ## Implementation map
@@ -48,6 +48,7 @@ reverse SSH, audit and deployment is tracked in
 [docs/implementation-status.md](docs/implementation-status.md).
 
 Prepared runbooks:
+- [Recovery / rebuild from scratch](docs/recovery.md)
 - [Authentication](docs/authentication.md)
 - [Device tunnels](docs/device-tunnels.md)
 - [Device bootstrap](docs/bootstrap-device.md)
