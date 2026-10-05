@@ -1,6 +1,12 @@
+import asyncio
+import time
+
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from ai_lab_gateway.auth import (
+    Auth0TokenVerifier,
     AuthConfig,
     bearer_challenge,
     identity_from_verified_claims,
@@ -46,3 +52,48 @@ def test_bearer_challenge_points_to_metadata():
     assert "resource_metadata=" in challenge
     assert 'scope="gateway:control"' in challenge
     assert 'error="invalid_token"' in challenge
+
+
+class StaticJWKClient:
+    def __init__(self, public_key):
+        self.public_key = public_key
+
+    def get_signing_key_from_jwt(self, token):
+        return type("SigningKey", (), {"key": self.public_key})()
+
+
+def make_token(private_key, **overrides):
+    now = int(time.time())
+    claims = {
+        "iss": "https://auth.example",
+        "aud": "https://gateway.debasti.com",
+        "sub": "auth0|user-1",
+        "iat": now,
+        "exp": now + 300,
+        "scope": "gateway:read gateway:control",
+        "azp": "chatgpt-client",
+    }
+    claims.update(overrides)
+    return jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "test"})
+
+
+def test_auth0_verifier_accepts_valid_rs256_token():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    verifier = Auth0TokenVerifier(config(), StaticJWKClient(private_key.public_key()))
+    access = asyncio.run(verifier.verify_token(make_token(private_key)))
+    assert access is not None
+    assert access.subject == "auth0|user-1"
+    assert access.client_id == "chatgpt-client"
+    assert access.resource == "https://gateway.debasti.com"
+    assert set(access.scopes) == {"gateway:read", "gateway:control"}
+
+
+@pytest.mark.parametrize("overrides", [
+    {"aud": "https://wrong.example"},
+    {"iss": "https://wrong.example"},
+    {"exp": 1},
+])
+def test_auth0_verifier_rejects_invalid_claims(overrides):
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    verifier = Auth0TokenVerifier(config(), StaticJWKClient(private_key.public_key()))
+    assert asyncio.run(verifier.verify_token(make_token(private_key, **overrides))) is None
