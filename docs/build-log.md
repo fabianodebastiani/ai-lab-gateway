@@ -328,3 +328,16 @@ remained Authentication.
 
 The stable Auth0/Google subject returned by the test is sensitive account
 metadata and is intentionally not recorded in this repository.
+
+
+### Auth0 MCP client-discovery compatibility
+
+Auth0 tenant settings were verified for MCP client interoperability:
+
+- Resource Parameter Compatibility Profile: enabled (it was already enabled).
+- Client ID Metadata Document (CIMD) Registration: enabled.
+- Dynamic Client Registration (DCR): remains disabled.
+
+This preserves the preferred CIMD path for compatible MCP clients while
+avoiding the broader unauthenticated DCR surface. No secrets are involved in
+these tenant feature flags.
