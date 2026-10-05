@@ -220,6 +220,20 @@ forwarding denied because the key is constrained by `permitlisten` to port
 10001. A final listener check showed 10001 active on loopback and no listener
 on 10002.
 
-Remaining operational work includes a real target reboot test, OAuth/provider
-integration, application wiring of the device registry/control plane, audit
-retention, and stable public-IP/DNS planning.
+### Real target reboot validation
+
+The first target was then rebooted normally. On the next boot,
+`ai-lab-reverse-tunnel.service` started automatically at 11:35:55 local time
+without operator intervention. The service was enabled and active with a fresh
+SSH process and the target was running the post-reboot kernel.
+
+From the OCI gateway, the separate management identity successfully traversed
+the automatically recreated listener on port 10001 and executed `id`,
+`hostname`, and `uptime` on the target. The command returned the expected
+non-root `ai-gateway` identity and target hostname. This validates the complete
+reboot path: target boot -> systemd -> reverse SSH -> gateway loopback listener
+-> management SSH -> target command execution.
+
+Remaining operational work includes OAuth/provider integration, application
+wiring of the device registry/control plane, audit retention, and stable
+public-IP/DNS planning.
