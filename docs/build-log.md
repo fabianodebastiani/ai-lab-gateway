@@ -280,3 +280,16 @@ architecture change.
 Next Auth0 work is to define the coarse Gateway API scopes, then configure the
 OAuth client/login path and implement/validate cryptographic JWT verification
 in the MCP request path.
+
+
+### Auth0 scopes created
+
+The Custom API Permissions tab was configured with exactly two coarse OAuth
+permissions:
+
+- `gateway:read` — `Read permitted devices and gateway status`
+- `gateway:control` — `Execute permitted operations on authorized devices`
+
+No Authorization Details Types were created. Fine-grained device/action
+authorization remains the responsibility of the gateway's deny-by-default
+policy; these OAuth scopes are intentionally coarse.
