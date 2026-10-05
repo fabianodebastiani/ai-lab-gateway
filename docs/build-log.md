@@ -250,3 +250,33 @@ bootstrap runbook for the first live device.
 Remaining operational work includes OAuth/provider integration, application
 wiring of the device registry/control plane, audit retention, and stable
 public-IP/DNS planning.
+
+
+## 2026-10-05 — Auth0 resource API created
+
+Auth0 was selected as the prototype OAuth authorization server. A Development
+tenant in the US region was created manually through the Auth0 dashboard.
+
+A Custom API representing the MCP resource server was created:
+
+```text
+Name: AI Lab Gateway
+Identifier / audience: https://gateway.debasti.com
+JWT profile: Auth0
+JWT signing algorithm: RS256
+User-delegated application access: Per-app authorization
+Client access: Per-app authorization
+```
+
+The Auth0 API Quickstart confirmed the expected audience
+`https://gateway.debasti.com`. No Auth0 secrets or tokens were committed.
+
+An Auth0 ChatGPT plugin was investigated as a possible administration path. In
+the available session it provided Auth0 integration guidance/skills but did not
+provide authenticated tenant Management API access, so tenant configuration
+continued manually. This is an operational convenience limitation, not an
+architecture change.
+
+Next Auth0 work is to define the coarse Gateway API scopes, then configure the
+OAuth client/login path and implement/validate cryptographic JWT verification
+in the MCP request path.
