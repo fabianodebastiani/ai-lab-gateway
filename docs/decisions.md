@@ -93,7 +93,6 @@ Observed initial resources:
 
 - OAuth provider/integration details for the MCP authentication layer.
 - Audit-log storage and retention.
-- Final defense-in-depth additions to the validated gateway-side OpenSSH tunnel restrictions.
 - Exact sudo policy for managed devices.
 - When the JSON prototype registry/authorization files should move to a database.
 
@@ -171,5 +170,27 @@ An earlier MCP implementation used TypeScript/Next.js and demonstrated the proto
 **Reasoning:** the gateway must not depend on an interactive terminal or manual reconnection after transient failures. Standard Linux service management keeps the device side thin while providing boot persistence and process supervision.
 
 **Validation:** on the first live target, the tunnel process was deliberately killed. systemd restarted it, the reverse listener was recreated, and gateway-to-target command execution succeeded again.
+
+**Status:** accepted and validated for the prototype.
+
+## ADR-019 — Tunnel identities may forward but may not open SSH sessions
+
+**Decision:** the shared gateway landing account for device tunnels is restricted
+to public-key authentication and remote TCP forwarding only. Session channels
+are disabled with `MaxSessions 0`; stream-local forwarding, user RC, TUN/TAP,
+agent forwarding, X11 forwarding and TTY allocation are disabled. Per-device
+`permitlisten` remains the listener-level authorization boundary.
+
+**Reasoning:** a device tunnel credential exists only to maintain its assigned
+reverse transport. It must not become a shell or command-execution credential
+on the public gateway, and it must not be able to claim another device's
+listener port.
+
+**Validation:** with the first live target, a fresh systemd-managed
+`ssh -NT -R` tunnel successfully recreated `127.0.0.1:10001` under the hardened
+policy and management SSH still worked end-to-end. A remote-command attempt
+using the tunnel credential failed with SSH exit 255. An attempted reverse
+forward on port 10002 was denied, while 10001 remained active and 10002 had no
+listener.
 
 **Status:** accepted and validated for the prototype.

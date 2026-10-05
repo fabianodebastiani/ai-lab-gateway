@@ -198,7 +198,28 @@ as a public MCP control tool. The public MCP server remains status-only until
 OAuth identity verification and deny-by-default application authorization are
 enforced end-to-end.
 
-Remaining operational work includes final defense-in-depth restrictions for
-the tunnel account, a real target reboot test, OAuth/provider integration,
-application wiring of the device registry/control plane, audit retention, and
-stable public-IP/DNS planning.
+### Final tunnel-account hardening
+
+The gateway-side `tunnel` Match policy was tightened and validated with the
+live device. Its effective policy now includes public-key-only authentication,
+`AllowTcpForwarding remote`, `AllowStreamLocalForwarding no`, `PermitUserRC no`,
+`PermitTunnel no`, and `MaxSessions 0`, in addition to the previously validated
+no-password, no-keyboard-interactive, no-X11, no-agent-forwarding, no-TTY and
+`GatewayPorts no` restrictions.
+
+After reloading sshd, the target's systemd tunnel service was restarted so the
+connection was established under the new policy. The legitimate reverse
+listener reappeared only on `127.0.0.1:10001`, and gateway-to-target command
+execution with the separate management identity still succeeded as non-root
+`ai-gateway`.
+
+Two negative tests then validated fail-closed behavior. Using the device tunnel
+credential to request remote command execution failed with SSH exit status 255.
+Using the same credential to request `127.0.0.1:10002` failed with remote port
+forwarding denied because the key is constrained by `permitlisten` to port
+10001. A final listener check showed 10001 active on loopback and no listener
+on 10002.
+
+Remaining operational work includes a real target reboot test, OAuth/provider
+integration, application wiring of the device registry/control plane, audit
+retention, and stable public-IP/DNS planning.

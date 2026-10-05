@@ -29,6 +29,13 @@
   SSH succeeded again after the tunnel was rebuilt.
 - Gateway-to-device command execution validated through the reverse tunnel as
   the non-root `ai-gateway` target account.
+- Final gateway-side tunnel-account hardening validated live: public-key-only
+  authentication, no session channels (`MaxSessions 0`), no stream-local
+  forwarding, no user RC, and no TUN/TAP forwarding.
+- Negative tests validated fail-closed behavior: the tunnel credential could
+  not execute a remote command (SSH exit 255) and could not allocate an
+  unauthorized reverse listener on port 10002; the legitimate loopback-only
+  listener on `127.0.0.1:10001` remained active.
 
 ## Implemented in repository; application integration still pending
 
@@ -59,9 +66,6 @@ public MCP tools.
 
 ## Remaining work
 
-- complete final tunnel-account hardening review (for example session and
-  stream-local forwarding restrictions) and validate it against the live
-  tunnel;
 - reconcile the generic device enrollment/systemd templates with the exact
   restrictions validated by the first live device;
 - configure the chosen OAuth provider and cryptographic token verifier;

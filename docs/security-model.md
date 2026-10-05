@@ -56,6 +56,12 @@ host/port with `permitlisten`.
 Device tunnel keys are distinct from target management keys.
 Compromise/revocation of one role should not automatically provide the other.
 
+The gateway-side `tunnel` account is also prevented from opening SSH session
+channels (`MaxSessions 0`) and from stream-local, TUN/TAP, agent, X11, TTY, or
+user-RC capabilities. Live negative tests confirmed that the tunnel credential
+cannot execute a remote command and cannot allocate a reverse listener outside
+its per-key `permitlisten` assignment.
+
 The first live device validates the intended pattern at
 `127.0.0.1:10001`; the port is not exposed on the gateway's public
 interfaces.

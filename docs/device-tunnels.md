@@ -65,13 +65,19 @@ The live gateway runs OpenSSH 9.6. The `tunnel` account has been validated
 with these effective restrictions:
 
 ```text
+AuthenticationMethods publickey
 PasswordAuthentication no
+KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AllowTcpForwarding remote
+AllowStreamLocalForwarding no
 GatewayPorts no
 X11Forwarding no
 AllowAgentForwarding no
 PermitTTY no
+PermitTunnel no
+PermitUserRC no
+MaxSessions 0
 ```
 
 The account uses `/usr/sbin/nologin` as its shell.
@@ -95,9 +101,13 @@ device key B -> may create only its assigned loopback reverse forward
 
 Never expose reverse-forward ports on `0.0.0.0`.
 
-A final defense-in-depth review is still planned for restrictions such as
-session creation and stream-local forwarding. Any additional restriction must
-be tested against a live `ssh -N` reverse tunnel before rollout.
+The defense-in-depth restrictions were validated against a fresh live
+`ssh -NT -R` connection. `MaxSessions 0` did not prevent the legitimate remote
+forward from being recreated. A command-execution attempt using the tunnel
+credential failed with SSH exit 255, while an attempt to allocate
+`127.0.0.1:10002` failed because the device key is restricted to port 10001.
+The authorized `127.0.0.1:10001` listener remained active and no listener was
+created on 10002.
 
 ## Management identity
 
