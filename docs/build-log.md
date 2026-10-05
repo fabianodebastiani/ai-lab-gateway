@@ -234,6 +234,19 @@ non-root `ai-gateway` identity and target hostname. This validates the complete
 reboot path: target boot -> systemd -> reverse SSH -> gateway loopback listener
 -> management SSH -> target command execution.
 
+### Final device acceptance tests
+
+The explicit wrong-management-key test used a temporary ED25519 key that was
+not authorized on the target. With the normal `ai-lab-gateway` host-trust
+context preserved, the connection traversed port 10001 to the target sshd and
+was rejected with `Permission denied`. The temporary key was then deleted.
+
+The live SSH execution backend was also tested directly rather than only by a
+unit test. `ssh_exec.execute()` sent `sleep 10` to `raspberry-lab` with a
+2-second application timeout. The backend raised the expected `TimeoutError`
+after 2.00 seconds. This completes all 11 acceptance checks in the device
+bootstrap runbook for the first live device.
+
 Remaining operational work includes OAuth/provider integration, application
 wiring of the device registry/control plane, audit retention, and stable
 public-IP/DNS planning.
