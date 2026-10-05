@@ -293,3 +293,18 @@ permissions:
 No Authorization Details Types were created. Fine-grained device/action
 authorization remains the responsibility of the gateway's deny-by-default
 policy; these OAuth scopes are intentionally coarse.
+
+
+### Auth0 application-access nuance
+
+The Auth0 Custom API's `Application Access -> Add Application` flow was
+inspected and deliberately NOT used. In the current Auth0 UI this flow is
+"Add an API as an application": it makes the resource API itself act as a
+client of other APIs (for Token Vault / on-behalf-of scenarios) and explicitly
+does not support interactive login/session management. It must not be used as
+a stand-in for the ChatGPT OAuth client.
+
+For the ChatGPT MCP integration, client discovery/registration must follow the
+OAuth/MCP interoperability supported by the client and authorization server
+(e.g. current metadata/CIMD or supported fallback), rather than inventing a
+manual Auth0 application through that API-as-application flow.
