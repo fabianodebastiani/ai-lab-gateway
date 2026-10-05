@@ -9,6 +9,10 @@ from dataclasses import dataclass
 import os
 from typing import Any
 
+import jwt
+from jwt import PyJWKClient
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+
 
 @dataclass(frozen=True)
 class AuthConfig:
@@ -74,6 +78,43 @@ def identity_from_verified_claims(claims: dict[str, Any]) -> VerifiedIdentity:
         scopes=scopes_from_claims(claims),
         claims=dict(claims),
     )
+
+
+class Auth0TokenVerifier(TokenVerifier):
+    """Verify Auth0 RS256 access tokens against the tenant JWKS."""
+
+    def __init__(self, config: AuthConfig, jwk_client: PyJWKClient | None = None):
+        self.config = config
+        self.jwk_client = jwk_client or PyJWKClient(
+            config.jwks_url, cache_jwk_set=True, lifespan=300
+        )
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        try:
+            signing_key = self.jwk_client.get_signing_key_from_jwt(token)
+            claims = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience=self.config.audience,
+                issuer=self.config.issuer,
+                options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+            )
+            identity = identity_from_verified_claims(claims)
+            exp = claims.get("exp")
+            return AccessToken(
+                token=token,
+                client_id=str(
+                    claims.get("azp") or claims.get("client_id") or identity.subject
+                ),
+                scopes=list(identity.scopes),
+                expires_at=int(exp) if isinstance(exp, (int, float)) else None,
+                resource=self.config.audience,
+                subject=identity.subject,
+                claims=dict(claims),
+            )
+        except (jwt.PyJWTError, ValueError, TypeError, PermissionError):
+            return None
 
 
 def bearer_challenge(config: AuthConfig, *scopes: str, error: str | None = None) -> str:
