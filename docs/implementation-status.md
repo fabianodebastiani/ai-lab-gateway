@@ -36,6 +36,10 @@
   not execute a remote command (SSH exit 255) and could not allocate an
   unauthorized reverse listener on port 10002; the legitimate loopback-only
   listener on `127.0.0.1:10001` remained active.
+- Real target reboot validated: the enabled reverse-tunnel service started
+  automatically during boot, recreated the gateway listener, and management
+  SSH from the OCI gateway again executed successfully on the target without
+  operator intervention.
 
 ## Implemented in repository; application integration still pending
 
@@ -71,7 +75,6 @@ public MCP tools.
 - connect the live device registry/authorization/control plane to MCP;
 - define narrow sudo policy only where a managed-device use case requires it;
 - choose audit-log storage/retention;
-- test survival across a real device reboot;
 - validate real ChatGPT product connection after OAuth is complete;
 - consider reserving the gateway public IP or automating DNS updates.
 
