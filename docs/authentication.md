@@ -32,13 +32,45 @@ Every accepted access token must be validated for signature, issuer, audience
 
 ## Authorization server
 
-Do not implement passwords, login sessions or token issuance in the gateway
-from scratch. Use an established OAuth/OIDC authorization server that can meet
-the MCP OAuth requirements.
+Auth0 is the selected authorization server for the prototype. The gateway
+remains provider-agnostic at the application boundary: it consumes standard
+issuer/JWKS/audience/scope claims and does not delegate per-device authorization
+to Auth0.
 
-The provider choice is intentionally deferred until deployment because it
-affects account UX, cost and external configuration. The gateway code should
-depend only on issuer/JWKS/audience/scopes, not on provider-specific user IDs.
+The Auth0 tenant was created as a Development tenant in the US region. A Custom
+API was created with:
+
+- Name: `AI Lab Gateway`
+- Identifier / audience: `https://gateway.debasti.com`
+- JWT profile: `Auth0`
+- JWT signing algorithm: `RS256`
+- User-delegated application access: `Per-app authorization`
+- Client access: `Per-app authorization`
+
+The API identifier is intentionally the same canonical resource identifier used
+by the MCP resource server. Auth0 notes that this identifier becomes the
+`audience` in authorization requests and cannot be changed after API creation.
+
+Do not put Auth0 tenant credentials, client secrets, private keys, access
+tokens, or other secrets in this repository.
+
+### Operator reconstruction
+
+If the Auth0 tenant must be recreated:
+
+1. create a Development tenant (the reference tenant used the US region);
+2. open Applications -> APIs -> Create API;
+3. create the Custom API using the values above;
+4. define the scopes in the Permissions tab as documented below;
+5. configure the ChatGPT/client application and OAuth interoperability only
+   after the resource API and scopes exist;
+6. configure Google/social login for human authentication when required;
+7. copy only non-secret issuer/audience configuration into the gateway runtime;
+8. validate signature, issuer, audience, lifetime and scopes end-to-end before
+   exposing device-control tools.
+
+Auth0's generic API Quickstart language/framework examples are not the source of
+truth for this project; the gateway is a Python MCP OAuth resource server.
 
 ## Subject mapping
 
@@ -52,6 +84,11 @@ OAuth token -> verified issuer/audience/scopes -> sub -> authorization policy
 Email addresses are display/account metadata, not authorization keys.
 
 ## Initial scopes
+
+In Auth0 these are created under the AI Lab Gateway Custom API's
+`Permissions` tab. Keep them coarse; per-device/action rights remain in the
+gateway's deny-by-default authorization policy.
+
 
 Keep OAuth scopes coarse and enforce device-level rights in the gateway policy:
 
