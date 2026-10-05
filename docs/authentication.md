@@ -116,3 +116,21 @@ the OAuth provider is configured.
 No `exec`, `write_file`, service-control or similar tool is registered on
 the public MCP surface until request identity can be validated and authorization
 can be enforced in the same request path.
+
+
+## Auth0 MCP compatibility requirement
+
+The MCP OAuth flow uses RFC 8707 `resource` to identify the target resource
+server. For the Auth0 tenant, enable **Resource Parameter Compatibility
+Profile** under Tenant Settings -> Advanced -> Settings. This makes Auth0 accept
+the MCP `resource=https://gateway.debasti.com` parameter as the target API
+identifier/audience.
+
+This is required for a standards-compliant MCP client such as ChatGPT to obtain
+an access token whose audience is the Gateway without a provider-specific
+`audience` rewrite in the Gateway.
+
+Do not enable Dynamic Client Registration merely by habit. The preferred
+ChatGPT path is CIMD when supported/configured; DCR is a fallback with a broader
+tenant security impact because it permits unauthenticated client registration.
+Choose the client-registration mode deliberately during ChatGPT integration.
