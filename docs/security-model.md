@@ -24,6 +24,9 @@ AND valid per-device SSH management credential
 
 Authorization is deny-by-default.
 
+The live public MCP endpoint remains status-only until this complete gate is
+enforced end-to-end.
+
 ## No shell interpolation on the gateway
 
 The SSH backend invokes OpenSSH with an argv list and `shell=False`. The remote
@@ -35,14 +38,40 @@ therefore non-root by default and sudo must be granted narrowly.
 
 ## Secrets
 
-Never store private keys, OAuth client secrets, access tokens or refresh tokens
-in Git. Registry and policy files contain identifiers and paths only.
+Never store private keys, OAuth client secrets, access tokens, refresh tokens,
+`authorized_keys`, or `known_hosts` in Git. Registry and policy files contain
+identifiers and paths only.
+
+Tunnel private keys are generated and retained on their devices. Per-device
+management private keys are retained on the gateway. The two roles are never
+served by the same credential.
 
 ## Reverse tunnel exposure
 
-Every reverse listener must bind to loopback. Device tunnel keys are distinct
-from target management keys. Compromise/revocation of one role should not
-automatically provide the other.
+Every reverse listener must bind to loopback. The gateway's tunnel account
+permits remote TCP forwarding but does not permit a device key to choose an
+arbitrary listener: each key is constrained to its assigned loopback
+host/port with `permitlisten`.
+
+Device tunnel keys are distinct from target management keys.
+Compromise/revocation of one role should not automatically provide the other.
+
+The first live device validates the intended pattern at
+`127.0.0.1:10001`; the port is not exposed on the gateway's public
+interfaces.
+
+## Target privilege
+
+The first managed target uses a dedicated non-root `ai-gateway` account.
+No sudo privilege is granted by default. Device-specific privileged operations
+must be introduced later through narrowly scoped sudo policy rather than by
+making the management account root.
+
+## Host identity
+
+SSH host keys are verified in both directions during enrollment. Normal
+operation uses strict host-key checking. Enrollment must not silently replace
+a previously trusted host identity.
 
 ## Audit privacy
 

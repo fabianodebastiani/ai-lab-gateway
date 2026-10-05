@@ -93,16 +93,15 @@ Observed initial resources:
 
 - OAuth provider/integration details for the MCP authentication layer.
 - Audit-log storage and retention.
-- Exact gateway-side OpenSSH restrictions for tunnel-only keys.
+- Final defense-in-depth additions to the validated gateway-side OpenSSH tunnel restrictions.
 - Exact sudo policy for managed devices.
 - When the JSON prototype registry/authorization files should move to a database.
-
 
 ## ADR-011 — Use the standard remote MCP model and OAuth 2.1
 
 **Decision:** implement the AI-facing interface as a standards-based remote MCP server over HTTPS using Streamable HTTP. Authentication should follow the MCP OAuth 2.1 authorization model rather than relying on a static Bearer token as the long-term design.
 
-**Reasoning:** current OpenAI MCP/plugin documentation supports remote MCP servers and recommends OAuth 2.1 for authenticated user-specific or write-capable services. An earlier DMARK prototype also implemented this pattern successfully enough to establish the architecture: protected-resource metadata, an OAuth authorization server, Authorization Code + PKCE, and bearer access-token validation at the MCP resource server.
+**Reasoning:** current OpenAI MCP/plugin documentation supports remote MCP servers and recommends OAuth 2.1 for authenticated user-specific or write-capable services. An earlier prototype also implemented this pattern successfully enough to establish the architecture: protected-resource metadata, an OAuth authorization server, Authorization Code + PKCE, and bearer access-token validation at the MCP resource server.
 
 The Lab Gateway should preserve separation between:
 - MCP/user authentication;
@@ -119,21 +118,19 @@ The Lab Gateway should preserve separation between:
 
 **Reasoning:** the gateway VM already provides Python 3.12; the official MCP SDK supports Streamable HTTP; Python keeps the service lightweight on the approximately 1 GiB VM; and the gateway's main work is orchestration of SSH, authorization and structured tools rather than a browser UI.
 
-The earlier DMARK MCP used TypeScript/Next.js and demonstrated the protocol/authentication pattern, but its Vercel/web-application constraints do not apply to this persistent Linux gateway.
+An earlier MCP implementation used TypeScript/Next.js and demonstrated the protocol/authentication pattern, but its serverless/web-application constraints do not apply to this persistent Linux gateway.
 
 **Status:** accepted for prototype.
-
 
 ## ADR-013 — ChatGPT Go compatibility is a product requirement
 
 **Decision:** the gateway/client integration must be designed and tested with ChatGPT Go as a required target. Compatibility with ChatGPT Free is a desirable additional target when the ChatGPT app/plugin distribution surface permits it.
 
-**Reasoning:** the intended product experience is not limited to developer-only MCP configuration. An earlier DMARK experiment established a useful precedent for exposing a remote authenticated MCP to a ChatGPT Go user. The Lab Gateway should therefore keep its MCP implementation standards-based and avoid dependencies on a single developer-only client path.
+**Reasoning:** the intended product experience is not limited to developer-only MCP configuration. Prior experimentation established a useful precedent for exposing a remote authenticated MCP to a ChatGPT Go user. The Lab Gateway should therefore keep its MCP implementation standards-based and avoid dependencies on a single developer-only client path.
 
 **Validation:** protocol-level MCP success is necessary but not sufficient. A milestone is only complete after the relevant ChatGPT product surface can actually connect and invoke the gateway.
 
 **Status:** accepted.
-
 
 ## ADR-014 — Platform users are not Linux users
 
@@ -149,15 +146,15 @@ The earlier DMARK MCP used TypeScript/Next.js and demonstrated the protocol/auth
 
 **Reasoning:** a reverse SSH forward carries TCP traffic but does not authenticate the later management session to the target sshd. Separating the two credentials gives independent revocation and avoids treating a tunnel credential as a shell credential.
 
-**Status:** accepted.
+**Status:** accepted and validated with the first live target.
 
 ## ADR-016 — Reverse-forward endpoints are loopback-only with fixed prototype ports
 
-**Decision:** reverse SSH listeners bind only to gateway loopback. The prototype registry assigns a unique fixed port to each device.
+**Decision:** reverse SSH listeners bind only to gateway loopback. The prototype registry assigns a unique fixed port to each device. Each tunnel public key is restricted to its assigned loopback listener with OpenSSH `permitlisten`.
 
-**Reasoning:** the reverse ports are an internal transport detail and must not become another Internet-facing SSH surface. Fixed ports make the first implementation easy to inspect and debug; dynamic allocation can be introduced later if scale requires it.
+**Reasoning:** the reverse ports are an internal transport detail and must not become another Internet-facing SSH surface. Fixed ports make the first implementation easy to inspect and debug; dynamic allocation can be introduced later if scale requires it. Per-key listener restrictions prevent a device credential from selecting another prototype device's assigned reverse port.
 
-**Status:** accepted for prototype.
+**Status:** accepted and validated with the first live target on port 10001.
 
 ## ADR-017 — Deny-by-default application authorization
 
@@ -166,3 +163,13 @@ The earlier DMARK MCP used TypeScript/Next.js and demonstrated the protocol/auth
 **Reasoning:** device access is potentially equivalent to code execution. Missing users, missing devices and missing actions must therefore fail closed.
 
 **Status:** accepted.
+
+## ADR-018 — Persistent device tunnels are systemd-managed and fail-recovering
+
+**Decision:** Linux targets maintain the outbound reverse SSH tunnel with a systemd service using strict host-key checking, keepalives, `ExitOnForwardFailure=yes`, and automatic restart.
+
+**Reasoning:** the gateway must not depend on an interactive terminal or manual reconnection after transient failures. Standard Linux service management keeps the device side thin while providing boot persistence and process supervision.
+
+**Validation:** on the first live target, the tunnel process was deliberately killed. systemd restarted it, the reverse listener was recreated, and gateway-to-target command execution succeeded again.
+
+**Status:** accepted and validated for the prototype.

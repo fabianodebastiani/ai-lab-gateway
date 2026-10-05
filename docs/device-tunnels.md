@@ -55,20 +55,38 @@ SSH identities have different purposes:
 - per-device tunnel identity: device authenticates to gateway;
 - per-device management identity: gateway authenticates to target sshd.
 
-A prototype may use one locked-down Unix account named `tunnel` as the
-landing account for reverse tunnels while retaining a unique public key per
-device. Human users do not log into this account.
+The prototype uses one locked-down Unix account named `tunnel` as the
+gateway landing account for reverse tunnels while retaining a unique public key
+per device. Human users do not log into this account.
 
-## Tunnel account restrictions
+## Validated tunnel-account restrictions
 
-The tunnel landing account should have no useful shell and no general-purpose
-SSH capabilities. Each device key should be restricted in
-`authorized_keys` to the minimum forwarding capability and its assigned
-listen endpoint. Exact OpenSSH options must be validated on the deployed
-server before automation because supported restrictions depend on the server
-version/configuration.
+The live gateway runs OpenSSH 9.6. The `tunnel` account has been validated
+with these effective restrictions:
 
-The intended invariant is:
+```text
+PasswordAuthentication no
+PubkeyAuthentication yes
+AllowTcpForwarding remote
+GatewayPorts no
+X11Forwarding no
+AllowAgentForwarding no
+PermitTTY no
+```
+
+The account uses `/usr/sbin/nologin` as its shell.
+
+Each device key is additionally constrained in `authorized_keys`. The first
+device, `raspberry-lab`, is limited to its assigned listener with:
+
+```text
+permitlisten="127.0.0.1:10001",no-agent-forwarding,no-X11-forwarding,no-pty,no-user-rc
+```
+
+followed by that device's public key. Do not store the actual key material in
+this repository.
+
+This establishes the prototype invariant:
 
 ```text
 device key A -> may create only its assigned loopback reverse forward
@@ -77,12 +95,49 @@ device key B -> may create only its assigned loopback reverse forward
 
 Never expose reverse-forward ports on `0.0.0.0`.
 
-## Persistence
+A final defense-in-depth review is still planned for restrictions such as
+session creation and stream-local forwarding. Any additional restriction must
+be tested against a live `ssh -N` reverse tunnel before rollout.
 
-The device-side tunnel is managed by systemd with SSH keepalives and
-`ExitOnForwardFailure=yes`. A sample unit is in
-`deploy/device/reverse-tunnel.service`.
+## Management identity
 
-The initial prototype can use fixed, registry-assigned ports (for example
-10001, 10002, ...). Dynamic allocation can be added later if scale warrants
-it.
+The gateway stores a distinct private management key for each target under
+runtime state owned by the `ai-lab-gateway` service account. Only the public
+half is installed in the target account's `authorized_keys`.
+
+The first target uses a non-root `ai-gateway` account. It has no sudo grant by
+default. The gateway connects to the target through the assigned loopback port
+with `IdentitiesOnly=yes` and `StrictHostKeyChecking=yes`.
+
+## Host-key verification
+
+The first enrollment verified the gateway's ED25519 host-key fingerprint on
+the gateway itself before the device trusted it. In the reverse direction, the
+target's ED25519 host-key fingerprint was compared with the key learned by the
+gateway through the reverse tunnel.
+
+Production operation uses `StrictHostKeyChecking=yes`. Initial trust must
+therefore be established deliberately during enrollment rather than with a
+permanent `accept-new` policy.
+
+## Persistence and reconnect
+
+The device-side tunnel is managed by systemd with:
+
+- `ExitOnForwardFailure=yes`;
+- `ServerAliveInterval=30`;
+- `ServerAliveCountMax=3`;
+- `Restart=always`;
+- `RestartSec=5`;
+- `StrictHostKeyChecking=yes`.
+
+A sample unit is in `deploy/device/reverse-tunnel.service`.
+
+For `raspberry-lab`, the manually validated tunnel was replaced by the
+systemd-managed service and enabled at boot. The SSH process was then
+deliberately killed. systemd started a new process, the device recreated the
+reverse listener, and gateway-to-device SSH command execution succeeded again
+without manual intervention.
+
+The initial prototype uses fixed, registry-assigned ports (10001, 10002, ...).
+Dynamic allocation can be added later if scale warrants it.

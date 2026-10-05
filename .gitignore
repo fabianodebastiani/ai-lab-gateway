@@ -17,6 +17,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+*.egg-info/
 
 # Local/runtime state
 *.log
