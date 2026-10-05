@@ -194,3 +194,22 @@ forward on port 10002 was denied, while 10001 remained active and 10002 had no
 listener.
 
 **Status:** accepted and validated for the prototype.
+
+
+## ADR-020 — Private developer-mode distribution first
+
+**Decision:** during the prototype and internal-development phase, connect
+authorized ChatGPT clients directly to the remote MCP endpoint using the
+available developer-mode/private connection workflow. Do not make publication
+in the public Plugin Directory a prerequisite for the MVP.
+
+**Reasoning:** the immediate goal is to validate secure authenticated control
+of private Linux lab devices, not to distribute the service publicly. The MCP
+endpoint must be Internet-reachable for the remote client, but reachability
+does not imply authorization: OAuth authentication plus deny-by-default
+subject/device/action policy remains mandatory.
+
+A future public or workspace distribution package can be added without changing
+the gateway transport architecture.
+
+**Status:** accepted for the current development phase.
