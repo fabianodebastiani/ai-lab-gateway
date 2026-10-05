@@ -9,13 +9,26 @@ from datetime import datetime, timezone
 import platform
 import socket
 
+from pydantic import AnyHttpUrl
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+
+from .auth import Auth0TokenVerifier, AuthConfig
+
+auth_config = AuthConfig.from_env()
 
 mcp = MCPServer(
     "AI Lab Gateway",
     description="Remote MCP gateway for controlled access to Linux lab devices",
     version="0.1.0",
+    token_verifier=Auth0TokenVerifier(auth_config),
+    auth=AuthSettings(
+        issuer_url=AnyHttpUrl(auth_config.issuer),
+        resource_server_url=AnyHttpUrl("https://gateway.debasti.com/mcp"),
+        required_scopes=["gateway:read"],
+        validate_token_resource=False,
+    ),
 )
 
 transport_security = TransportSecuritySettings(
@@ -32,7 +45,7 @@ transport_security = TransportSecuritySettings(
 
 @mcp.tool()
 def gateway_status() -> dict[str, str]:
-    """Return basic status of the AI Lab Gateway service."""
+    """Return basic status of the authenticated AI Lab Gateway service."""
     return {
         "status": "ok",
         "service": "ai-lab-gateway",
