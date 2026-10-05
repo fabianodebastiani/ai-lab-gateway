@@ -116,6 +116,7 @@ A device is not considered enrolled until all of these succeed:
 
 Only after these checks should the device be eligible for MCP control.
 
-For the first live device, items 1-5, 7-8 and 11 have been validated. The real
-target reboot, explicit wrong-management-key test, and application-level
-execution-timeout acceptance test remain to be completed.
+For the first live device, items 1-8 and 11 have been validated, including a
+real target reboot with automatic systemd startup and successful end-to-end
+management SSH after boot. The explicit wrong-management-key test and
+application-level execution-timeout acceptance test remain to be completed.
