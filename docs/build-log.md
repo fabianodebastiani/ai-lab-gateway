@@ -341,3 +341,28 @@ Auth0 tenant settings were verified for MCP client interoperability:
 This preserves the preferred CIMD path for compatible MCP clients while
 avoiding the broader unauthenticated DCR surface. No secrets are involved in
 these tenant feature flags.
+
+
+### Production OAuth environment scaffold
+
+The production VM was prepared for provider configuration without embedding
+tenant values in the systemd unit:
+
+- `/etc/ai-lab-gateway/` created as `root:ai-lab-gateway`, mode `0750`.
+- `/etc/ai-lab-gateway/gateway.env` created as `root:ai-lab-gateway`, mode `0640`.
+- systemd drop-in `10-environment.conf` adds
+  `EnvironmentFile=/etc/ai-lab-gateway/gateway.env`.
+- Public Auth0 resource-server settings (issuer, API audience and JWKS URL)
+  were placed in the environment file. No client secret, access token, private
+  key, or other credential is required or stored there.
+- `systemctl daemon-reload` was performed, but the service was intentionally
+  not restarted yet; the currently deployed server does not consume the OAuth
+  settings.
+- Existing production process remained active after this preparation.
+
+Implementation note: current MCP Python SDK 2.x can enforce bearer
+authentication and publish RFC 9728 protected-resource metadata directly using
+`TokenVerifier` plus `AuthSettings`. JWT verification must still validate
+Auth0 signature, issuer, audience, time constraints, and scopes. The public MCP
+control surface must remain closed until these checks and deny-by-default
+device authorization are tested.
