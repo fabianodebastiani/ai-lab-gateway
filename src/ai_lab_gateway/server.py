@@ -98,6 +98,12 @@ def list_devices() -> list[dict[str, str]]:
     return _control_plane().list_devices(_verified_identity())
 
 
+@mcp.tool()
+def device_status(device_id: str) -> dict[str, str | int]:
+    """Check an authorized lab device live over the managed SSH tunnel."""
+    return _control_plane().device_status(_verified_identity(), device_id)
+
+
 def main() -> None:
     """Run the MCP server using Streamable HTTP."""
     mcp.run(
