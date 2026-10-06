@@ -20,6 +20,7 @@ class AuthConfig:
     audience: str
     jwks_url: str
     resource_metadata_url: str
+    min_iat: int | None = None
 
     @classmethod
     def from_env(cls) -> "AuthConfig":
@@ -37,7 +38,9 @@ class AuthConfig:
             raise RuntimeError(
                 "missing OAuth configuration: " + ", ".join(sorted(missing))
             )
-        return cls(**required)  # type: ignore[arg-type]
+        min_iat_raw = os.getenv("AI_LAB_OAUTH_MIN_IAT")
+        min_iat = int(min_iat_raw) if min_iat_raw else None
+        return cls(**required, min_iat=min_iat)  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,10 @@ class Auth0TokenVerifier(TokenVerifier):
                 issuer=self.config.issuer,
                 options={"require": ["exp", "iat", "iss", "aud", "sub"]},
             )
+            iat = claims.get("iat")
+            if self.config.min_iat is not None:
+                if not isinstance(iat, (int, float)) or int(iat) < self.config.min_iat:
+                    return None
             identity = identity_from_verified_claims(claims)
             exp = claims.get("exp")
             return AccessToken(
