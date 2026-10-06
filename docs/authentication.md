@@ -21,7 +21,7 @@ https://gateway.debasti.com/mcp
 The resource server must publish protected-resource metadata at:
 
 ```text
-https://gateway.debasti.com/.well-known/oauth-protected-resource
+https://gateway.debasti.com/.well-known/oauth-protected-resource/mcp
 ```
 
 and reject missing/invalid credentials with a Bearer challenge that points to
@@ -146,9 +146,12 @@ Reconstruction path:
 2. Applications -> Applications -> Create Application -> Import from URL.
 3. Import `https://chatgpt.com/oauth/client.json`, preview it, then create the third-party CIMD application named `ChatGPT`.
 4. Applications -> APIs -> create `AI Lab Gateway MCP` with Identifier `https://gateway.debasti.com/mcp`, JWT profile `Auth0`, signing algorithm `RS256`, and per-app authorization for user-delegated and client access.
-5. In Permissions, add `gateway:read` (`Read permitted devices and gateway status`).
-6. In Application Access, edit `ChatGPT` under User-Delegated Access, select `gateway:read`, and grant access. Do not grant Client Access merely for the interactive ChatGPT flow.
-7. Keep third-party default permissions fail-closed; authorize ChatGPT explicitly.
+5. In Permissions, add:
+   - `gateway:read` — `Read permitted devices and gateway status`;
+   - `gateway:control` — `Execute commands and modify files on permitted devices`.
+6. In Application Access, edit `ChatGPT` under User-Delegated Access, grant both permissions, and enable **Always grant all permissions** for the validated developer-mode setup. Do not grant Client Access merely for the interactive ChatGPT flow.
+7. Ensure the Google/social connection used for human login is available at the domain/tenant level for the third-party CIMD application; otherwise Auth0 may report that no connection is enabled for the client.
+8. Keep third-party default permissions fail-closed; authorize ChatGPT explicitly.
 
 Observed diagnostics:
 
@@ -157,3 +160,72 @@ Observed diagnostics:
 - The replacement API therefore uses the exact MCP resource URL as its Auth0 identifier/audience. Do not delete the original API until end-to-end acceptance passes.
 
 Runtime configuration must use audience `https://gateway.debasti.com/mcp` before token validation is retested. Never commit user subjects, tokens, client secrets, private keys, or other tenant secrets.
+
+
+## Validated ChatGPT/Auth0 implementation notes (2026-10-06)
+
+The OAuth integration is now live, not merely planned.
+
+The gateway verifies Auth0 RS256 access tokens against the tenant JWKS and
+checks issuer, audience, lifetime, subject and scopes. The private application
+authorization policy then maps the verified subject to explicit device/action
+grants.
+
+The global MCP boundary requires `gateway:read`. The privileged `exec` and
+`write_file` paths require `gateway:control` in addition to the private
+device/action grant.
+
+### MCP SDK 2.3 protected-resource metadata caveat
+
+MCP Python SDK 2.3.0 uses the same
+`AuthSettings.required_scopes` value both for global middleware enforcement
+and for generated RFC 9728 `scopes_supported` metadata. The gateway needs
+those concepts to differ: read is globally required, while control is a
+supported step-up scope.
+
+The implementation therefore keeps the SDK global boundary at
+`gateway:read` and wraps the generated ASGI app with a repository-owned
+protected-resource metadata override that advertises both
+`gateway:read` and `gateway:control`.
+
+Do not patch the installed MCP package.
+
+### Control-scope step-up
+
+An in-tool `PermissionError` becomes an MCP tool error inside HTTP 200 and is
+not sufficient to tell an OAuth client to request a stronger scope. The
+gateway therefore performs an additional transport-level check for
+`tools/call` requests to `exec` and `write_file`.
+
+A read-only token calling a privileged tool receives HTTP 403 with
+`error="insufficient_scope"`, `scope="gateway:control"`, and the correct
+protected-resource metadata URL. The control plane still independently checks
+`gateway:control` before SSH execution.
+
+### Token issuance cutoff
+
+The optional runtime value `AI_LAB_OAUTH_MIN_IAT` rejects access tokens issued
+before a chosen Unix timestamp. This was added because revoking an Auth0
+Authorized Application grant does not necessarily invalidate an already-issued
+self-contained JWT before its normal expiry.
+
+Use the cutoff only as an intentional reauthorization epoch and record why it
+was changed.
+
+### ChatGPT developer-mode snapshot behavior
+
+During validation, older ChatGPT developer-mode apps did not reliably refresh
+either newly added MCP tools or corrected OAuth discovery/scope state after
+reconnect. A fresh developer-mode app created after the corrected server state
+was live successfully obtained control authorization and passed all six v1
+tools.
+
+Treat reconnect as the first attempt, but after a material tool-catalog or
+OAuth-discovery change, create one fresh developer-mode app if the old one
+continues to behave as a stale snapshot. Remove obsolete test apps only after
+the replacement passes.
+
+The complete reconstruction, failure signatures, token-cutoff procedure,
+metadata tests, scope-step-up behavior, and final acceptance sequence are
+recorded in
+[chatgpt-auth0-oauth-runbook.md](chatgpt-auth0-oauth-runbook.md).
