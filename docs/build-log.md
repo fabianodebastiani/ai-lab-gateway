@@ -380,3 +380,275 @@ PyJWT crypto support and unit tests were added for a valid RS256 token and
 rejection of wrong audience, wrong issuer and expired tokens. Production has
 not been restarted by these source changes; deployment remains an explicit
 operator step after tests pass on the VM.
+
+
+## 2026-10-05/06 — OAuth, stable v1 tools, and real ChatGPT control acceptance
+
+This milestone completed the identity-to-execution path and exposed the stable
+six-tool v1 surface through a real ChatGPT developer-mode app.
+
+### Stable v1 MCP tool surface
+
+The server now exposes:
+
+```text
+gateway_status
+list_devices
+device_status
+exec
+read_file
+write_file
+```
+
+Scope mapping:
+
+```text
+gateway:read
+  -> gateway_status
+  -> list_devices
+  -> device_status
+  -> read_file
+
+gateway:control
+  -> exec
+  -> write_file
+```
+
+The private deny-by-default policy independently maps the verified OAuth subject
+to explicit per-device actions.
+
+### Auth0 API and ChatGPT CIMD
+
+A replacement Auth0 Custom API was created with the exact MCP resource
+identifier:
+
+```text
+https://gateway.debasti.com/mcp
+```
+
+The earlier root-only API was retained temporarily as rollback state.
+
+Auth0 tenant settings used for the successful flow:
+
+- Resource Parameter Compatibility Profile: enabled;
+- Client ID Metadata Document Registration: enabled;
+- Dynamic Client Registration: intentionally disabled.
+
+The ChatGPT client was imported from:
+
+```text
+https://chatgpt.com/oauth/client.json
+```
+
+Observed OAuth bring-up failures and fixes:
+
+1. `Unknown client: https://chatgpt.com/oauth/client.json`
+   - fixed by importing the ChatGPT CIMD application after enabling CIMD.
+2. `Service not found: https://gateway.debasti.com/mcp`
+   - fixed by making the Auth0 API identifier exactly match the MCP resource.
+3. Google/social login reported no connection enabled for the third-party
+   client.
+   - fixed by making the Google connection available at the required
+     domain/tenant level.
+
+The Auth0 API permissions are:
+
+- `gateway:read` — read permitted devices and gateway status;
+- `gateway:control` — execute commands and modify files on permitted devices.
+
+ChatGPT User-Delegated Access was ultimately configured for both permissions,
+with **Always grant all permissions** enabled.
+
+No real OAuth subject, token, secret or private policy entry is recorded in the
+public repository.
+
+### First live OAuth success
+
+After the Auth0 audience and runtime configuration were corrected, ChatGPT
+successfully called read-only device operations through the public MCP endpoint.
+
+A live `device_status` call reached the first target and returned its real
+hostname over the managed reverse SSH path.
+
+### Control-scope failure revealed MCP SDK metadata coupling
+
+The first real `exec("uname -a")` attempt failed inside the control plane with:
+
+```text
+PermissionError: missing OAuth scope(s): gateway:control
+```
+
+The MCP request itself returned HTTP 200 because the exception was represented
+as a tool error.
+
+Public RFC 9728 metadata at that time advertised only:
+
+```text
+gateway:read
+```
+
+Source inspection of MCP Python SDK 2.3.0 showed that the SDK uses
+`AuthSettings.required_scopes` for both:
+
+- global `RequireAuthMiddleware` enforcement;
+- generated RFC 9728 `scopes_supported`.
+
+Setting both read and control there would incorrectly require control for every
+read-only request.
+
+### Protected-resource metadata override
+
+A repository-owned ASGI wrapper was added so the gateway can:
+
+- keep global middleware at `gateway:read`;
+- advertise both `gateway:read` and `gateway:control`;
+- preserve the SDK bearer middleware and `WWW-Authenticate` behavior.
+
+The public metadata was then validated:
+
+```json
+{
+  "resource": "https://gateway.debasti.com/mcp",
+  "scopes_supported": [
+    "gateway:read",
+    "gateway:control"
+  ]
+}
+```
+
+The unauthenticated endpoint was also validated to return 401 with:
+
+```text
+resource_metadata="https://gateway.debasti.com/.well-known/oauth-protected-resource/mcp"
+```
+
+### Revoking Auth0 grant did not kill the old JWT immediately
+
+The user's ChatGPT Authorized Application grant was revoked in Auth0, but a
+previously issued JWT remained valid until its normal expiry and still carried
+only `gateway:read`.
+
+The gateway therefore gained optional
+`AI_LAB_OAUTH_MIN_IAT=<unix timestamp>` support. After setting the cutoff and
+restarting, the old token produced 401, proving the pre-cutoff token was
+rejected.
+
+This is an operational reauthorization epoch, not a replacement for provider
+token lifetime or normal revocation.
+
+### Why control step-up moved to the HTTP boundary
+
+An in-tool scope exception is not enough for OAuth step-up because MCP returns
+it inside HTTP 200.
+
+A transport wrapper was therefore added for `tools/call` requests to
+`exec` and `write_file`. When a valid token lacks
+`gateway:control`, the gateway returns HTTP 403 with:
+
+```text
+error="insufficient_scope"
+scope="gateway:control"
+resource_metadata="..."
+```
+
+The control plane keeps its independent `gateway:control` check as
+defense-in-depth.
+
+### Protected-resource path bug found and fixed
+
+The custom 403 challenge initially referenced the stale root-only metadata URL:
+
+```text
+https://gateway.debasti.com/.well-known/oauth-protected-resource
+```
+
+while the resource is `https://gateway.debasti.com/mcp`.
+
+The correct URL is:
+
+```text
+https://gateway.debasti.com/.well-known/oauth-protected-resource/mcp
+```
+
+The application now derives the metadata URL from the configured audience
+instead of hard-coding the root path. A regression test covers this case.
+
+### ChatGPT developer-mode app snapshot behavior
+
+Multiple development apps were created during the integration sequence.
+
+Empirical behavior:
+
+- an older app did not automatically acquire MCP tools added after it was
+  created;
+- a later app created after the six v1 tools were deployed discovered all six;
+- that app remained stuck in the earlier read-only OAuth discovery behavior
+  despite repeated reconnect attempts and server corrections;
+- the reconnect modal recognized 403/401 flows but did not reliably replace the
+  old app's authorization/discovery state;
+- a fresh developer-mode app created only after all metadata/scope fixes were
+  live immediately passed control authorization.
+
+Operational conclusion: after material tool-catalog or OAuth-discovery changes,
+reconnect first, but create one new developer-mode app if the old one behaves
+like a stale snapshot. Remove obsolete apps only after the replacement passes.
+
+### Final ChatGPT end-to-end acceptance
+
+The fresh post-fix developer-mode app successfully executed:
+
+```text
+list_devices()
+device_status("raspberry-lab")
+exec("raspberry-lab", "uname -a")
+```
+
+The `uname -a` response came from the real ARM64 target over:
+
+```text
+ChatGPT
+ -> Auth0
+ -> MCP/HTTPS
+ -> OAuth scope
+ -> private authorization policy
+ -> gateway management SSH
+ -> reverse SSH tunnel
+ -> non-root target
+```
+
+A file-operation round trip then succeeded:
+
+1. `write_file` wrote a temporary UTF-8 text file under `/tmp`;
+2. `read_file` returned the exact content;
+3. `exec("rm -f ...")` removed the temporary file with exit code 0.
+
+This validated all six v1 tools through the real production client path.
+
+### Test progression
+
+The repository test suite progressed during this work:
+
+```text
+23 passing
+25 passing after metadata override coverage
+27 passing after token issuance cutoff coverage
+30 passing after scope-step-up coverage
+31 passing after resource-metadata path derivation coverage
+```
+
+A subsequent repository update extended audit metadata to file read/write
+attempts as well.
+
+### Documentation rule established
+
+The OAuth integration produced enough product- and SDK-specific learning that
+it must not live only in conversational history.
+
+The detailed reconstruction and troubleshooting source of truth is now:
+
+```text
+docs/chatgpt-auth0-oauth-runbook.md
+```
+
+Future rebuilds should follow that runbook before creating a ChatGPT
+developer-mode app.
