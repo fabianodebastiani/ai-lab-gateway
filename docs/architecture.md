@@ -44,7 +44,7 @@ The cloud administrator SSH identity is a fourth operational credential and is n
 
 ## Gateway request path
 
-A future execution request follows this order:
+A live execution request follows this order:
 
 ```text
 authenticated subject
@@ -70,7 +70,9 @@ stdout / stderr / exit code
        +---- audit metadata
 ```
 
-The SSH backend already exists as an internal module, but it is deliberately not registered as a public MCP tool until authentication and authorization are enforced.
+The SSH backend is reached only through the authenticated control plane after
+OAuth scope checks, private authorization, registry lookup, and per-device SSH
+identity selection succeed.
 
 ## Device registry
 
@@ -109,21 +111,31 @@ The reverse listener is internal to the gateway. It is not exposed on a public i
 
 ## MCP surface
 
-The public MCP currently exposes only harmless `gateway_status`.
+The stable v1 public MCP surface is:
 
-After authentication/authorization integration, a minimal controlled surface may include:
-
+- `gateway_status()`
 - `list_devices()`
 - `device_status(device)`
 - `exec(device, command, timeout)`
 - `read_file(device, path)`
 - `write_file(device, path, content)`
 
-Higher-level semantic tools can be added later without changing the transport architecture.
+`gateway:read` is the global authenticated boundary. `exec` and
+`write_file` additionally require `gateway:control`, and every device
+operation is also checked against the private subject/device/action policy.
+
+The OAuth resource metadata and step-up behavior are documented in
+`docs/chatgpt-auth0-oauth-runbook.md`.
+
+Higher-level semantic tools can be added later without changing the transport
+architecture.
 
 ## Audit
 
-Security-relevant actions should produce audit metadata. The prototype has an append-only JSONL sink for subject, device, action, result, duration and exit code. Command/stdout/stderr retention is intentionally deferred because those fields may contain secrets or personal data.
+Security-relevant remote status, command, file-read and file-write actions
+produce append-only JSONL audit metadata for subject, device, action, result,
+duration and exit code. Command text, file contents, stdout and stderr are not
+retained by default because they may contain secrets or personal data.
 
 ## Service boundaries
 
