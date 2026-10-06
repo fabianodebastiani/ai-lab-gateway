@@ -13,7 +13,7 @@ def make_control(tmp_path):
         identity_file="/keys/pi",
     )})
     policy = AuthorizationPolicy({
-        "alice": {"pi": {"status", "exec"}},
+        "alice": {"pi": {"status", "exec", "read_file", "write_file"}},
         "bob": {"pi": {"status"}},
     })
     return ControlPlane(registry, policy, JsonlAuditLog(tmp_path / "audit.jsonl"))
@@ -65,3 +65,41 @@ def test_exec_calls_backend_and_audits(monkeypatch, tmp_path):
     )
     assert result.stdout == "Linux pi"
     assert '"subject":"alice"' in (tmp_path / "audit.jsonl").read_text()
+
+
+def test_device_status_calls_hostname_and_audits(monkeypatch, tmp_path):
+    control = make_control(tmp_path)
+    monkeypatch.setattr("ai_lab_gateway.control.execute", lambda device, command, timeout: CommandResult("pi-host\n", "", 0))
+    result = control.device_status(identity("alice", "gateway:read"), "pi")
+    assert result["hostname"] == "pi-host"
+    assert result["status"] == "online"
+    assert '"action":"status"' in (tmp_path / "audit.jsonl").read_text()
+
+
+def test_read_file_requires_read_scope(monkeypatch, tmp_path):
+    control = make_control(tmp_path)
+    monkeypatch.setattr("ai_lab_gateway.control.execute", lambda device, command, timeout: CommandResult("hello", "", 0))
+    assert control.read_file(identity("alice", "gateway:read"), "pi", "/tmp/x") == "hello"
+    try:
+        control.read_file(identity("alice", "gateway:control"), "pi", "/tmp/x")
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("read scope should be required")
+
+
+def test_write_file_requires_control_scope(monkeypatch, tmp_path):
+    control = make_control(tmp_path)
+    seen = {}
+    def fake_execute(device, command, timeout):
+        seen["command"] = command
+        return CommandResult("", "", 0)
+    monkeypatch.setattr("ai_lab_gateway.control.execute", fake_execute)
+    control.write_file(identity("alice", "gateway:control"), "pi", "/tmp/x", "hello")
+    assert "base64 -d" in seen["command"]
+    try:
+        control.write_file(identity("alice", "gateway:read"), "pi", "/tmp/x", "hello")
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("control scope should be required")
