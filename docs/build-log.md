@@ -652,3 +652,33 @@ docs/chatgpt-auth0-oauth-runbook.md
 
 Future rebuilds should follow that runbook before creating a ChatGPT
 developer-mode app.
+
+
+## 2026-10-06 — Live audit coverage validated after final v1 deployment
+
+After deploying the repository changes that added audit coverage to remote file
+operations, the production service was restarted and the known-good ChatGPT
+developer-mode app executed a final live sequence against the registered target:
+
+```text
+device_status
+write_file
+read_file
+exec (temporary-file cleanup)
+```
+
+The private production JSONL audit log recorded all four actions successfully:
+
+```text
+status
+write_file
+read_file
+exec
+```
+
+Each event contained the expected metadata fields (timestamp, authenticated
+subject, device ID, action, success, duration, exit code) while omitting command
+text, file contents, stdout and stderr.
+
+This closes the v1 audit acceptance gap. The real OAuth subject remains private
+runtime data and is intentionally not copied into the public repository.
