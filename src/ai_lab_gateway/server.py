@@ -104,6 +104,26 @@ def device_status(device_id: str) -> dict[str, str | int]:
     return _control_plane().device_status(_verified_identity(), device_id)
 
 
+@mcp.tool()
+def exec(device_id: str, command: str, timeout: int = 30) -> dict[str, str | int]:
+    """Execute a command on an authorized lab device."""
+    result = _control_plane().exec(_verified_identity(), device_id, command, timeout)
+    return {"stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code}
+
+
+@mcp.tool()
+def read_file(device_id: str, path: str, timeout: int = 30) -> str:
+    """Read a text file from an authorized lab device."""
+    return _control_plane().read_file(_verified_identity(), device_id, path, timeout)
+
+
+@mcp.tool()
+def write_file(device_id: str, path: str, content: str, timeout: int = 30) -> dict[str, str]:
+    """Write a UTF-8 text file on an authorized lab device."""
+    _control_plane().write_file(_verified_identity(), device_id, path, content, timeout)
+    return {"status": "ok"}
+
+
 def main() -> None:
     """Run the MCP server using Streamable HTTP."""
     mcp.run(
