@@ -714,3 +714,19 @@ https://gateway.debasti.com/mcp
 A post-cleanup live check through the known-good ChatGPT app still succeeded for
 both device discovery and a real control command, confirming that removal of
 the old rollback API did not affect the active OAuth/MCP path.
+
+
+## 2026-10-06 — Temporary OAuth token cutoff removed after acceptance
+
+The temporary production `AI_LAB_OAUTH_MIN_IAT` value used during OAuth
+reauthorization testing was removed from the private runtime environment after
+the known-good ChatGPT app and canonical Auth0 API had passed acceptance.
+
+The feature remains implemented in the codebase as an operational tool for
+future forced-reauthorization events, but it is no longer active in the normal
+production runtime.
+
+After restarting the gateway without the cutoff, the known-good ChatGPT app
+successfully completed both a live `device_status` call and a real
+`exec("uname -m")` control call against the registered target. This confirms
+normal JWT expiry/validation behavior is sufficient for the steady state.
