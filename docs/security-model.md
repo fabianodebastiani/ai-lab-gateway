@@ -24,8 +24,9 @@ AND valid per-device SSH management credential
 
 Authorization is deny-by-default.
 
-The live public MCP endpoint remains status-only until this complete gate is
-enforced end-to-end.
+The live v1 public MCP endpoint now enforces this gate end-to-end. The global
+MCP boundary requires `gateway:read`; privileged `exec` and `write_file`
+also require `gateway:control`.
 
 ## No shell interpolation on the gateway
 
@@ -87,7 +88,13 @@ contain secrets or personal data.
 
 ## Public-tool activation rule
 
-The SSH backend and control plane may exist in code before OAuth is deployed.
-They must not be registered as public MCP tools until the running server can
-derive a verified identity from each request and apply the complete execution
-gate above.
+New privileged MCP tools must not be added merely because an internal backend
+exists. Before activation, the running server must derive a verified identity
+from each request, define the required OAuth scope, apply explicit
+subject/device/action authorization where relevant, and produce appropriate
+audit metadata.
+
+For OAuth scope elevation, failures that must trigger client reauthorization
+belong at the HTTP transport boundary as an RFC-compatible
+`insufficient_scope` challenge. The control plane must still enforce the same
+scope independently before the privileged backend executes.
