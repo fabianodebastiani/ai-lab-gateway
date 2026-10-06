@@ -1,20 +1,25 @@
-"""Minimal AI Lab Gateway MCP server.
+"""AI Lab Gateway MCP server.
 
-The first milestone intentionally exposes only a harmless status tool.
-Device access and SSH execution will be added only after the MCP transport
-has been validated end-to-end.
+The public MCP surface is deliberately small. Authenticated read-only device
+listing is exposed before any command-execution capability.
 """
 
 from datetime import datetime, timezone
+import os
 import platform
 import socket
 
 from pydantic import AnyHttpUrl
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .auth import Auth0TokenVerifier, AuthConfig
+from .audit import JsonlAuditLog
+from .auth import Auth0TokenVerifier, AuthConfig, identity_from_verified_claims
+from .authz import AuthorizationPolicy
+from .control import ControlPlane
+from .registry import DeviceRegistry
 
 auth_config = AuthConfig.from_env()
 
@@ -43,6 +48,37 @@ transport_security = TransportSecuritySettings(
 )
 
 
+def _control_plane() -> ControlPlane:
+    """Load private runtime registry/policy state.
+
+    Defaults intentionally live outside the public repository. Operators may
+    override them with environment variables when using another filesystem
+    layout.
+    """
+    registry_path = os.getenv(
+        "AI_LAB_DEVICE_REGISTRY", "/etc/ai-lab-gateway/devices.json"
+    )
+    policy_path = os.getenv(
+        "AI_LAB_AUTHORIZATION_POLICY", "/etc/ai-lab-gateway/authorization.json"
+    )
+    audit_path = os.getenv(
+        "AI_LAB_AUDIT_LOG", "/var/lib/ai-lab-gateway/audit.jsonl"
+    )
+    return ControlPlane(
+        registry=DeviceRegistry.load(registry_path),
+        policy=AuthorizationPolicy.load(policy_path),
+        audit=JsonlAuditLog(audit_path),
+    )
+
+
+def _verified_identity():
+    """Recover the already-verified caller identity from MCP request context."""
+    token = get_access_token()
+    if token is None:
+        raise PermissionError("authenticated access token is unavailable")
+    return identity_from_verified_claims(dict(token.claims or {}))
+
+
 @mcp.tool()
 def gateway_status() -> dict[str, str]:
     """Return basic status of the authenticated AI Lab Gateway service."""
@@ -54,6 +90,12 @@ def gateway_status() -> dict[str, str]:
         "architecture": platform.machine(),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@mcp.tool()
+def list_devices() -> list[dict[str, str]]:
+    """List enabled lab devices explicitly authorized for the current user."""
+    return _control_plane().list_devices(_verified_identity())
 
 
 def main() -> None:
