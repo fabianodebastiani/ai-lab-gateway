@@ -213,3 +213,107 @@ A future public or workspace distribution package can be added without changing
 the gateway transport architecture.
 
 **Status:** accepted for the current development phase.
+
+
+## ADR-021 — Auth0 + CIMD with exact MCP resource audience
+
+**Decision:** use Auth0 as the prototype authorization server and register
+ChatGPT through its Client ID Metadata Document. The Auth0 Custom API identifier
+must exactly equal the MCP resource URL:
+
+```text
+https://gateway.debasti.com/mcp
+```
+
+Enable Auth0 Resource Parameter Compatibility Profile and CIMD Registration.
+Keep DCR disabled unless deliberately required.
+
+**Reasoning:** ChatGPT's MCP OAuth flow discovers and requests the resource using
+the standards-based resource identifier. An earlier root-only Auth0 API
+identifier did not match the `/mcp` resource and caused a service-not-found
+authorization failure. Exact resource/audience alignment avoids
+provider-specific rewrites.
+
+**Status:** accepted and validated end-to-end.
+
+## ADR-022 — Separate globally required scope from supported control scope
+
+**Decision:** globally require only `gateway:read`, advertise both
+`gateway:read` and `gateway:control` in RFC 9728 metadata, and require
+`gateway:control` only for privileged tools.
+
+**Reasoning:** MCP Python SDK 2.3.0 couples
+`AuthSettings.required_scopes` to both middleware enforcement and generated
+`scopes_supported`. Setting both scopes there would force control permission
+onto read-only operations. Setting only read would hide the supported control
+scope from OAuth discovery.
+
+The gateway therefore uses a repository-owned ASGI metadata override instead of
+patching the installed SDK.
+
+**Status:** accepted and implemented.
+
+## ADR-023 — Emit OAuth insufficient-scope at transport level for privileged tools
+
+**Decision:** for `exec` and `write_file`, perform an additional
+transport-level scope check and return HTTP 403
+`error="insufficient_scope"` with `scope="gateway:control"` and the RFC 9728
+metadata URL when a valid token lacks control scope.
+
+The control plane still independently enforces `gateway:control` before SSH
+execution.
+
+**Reasoning:** an exception raised only inside an MCP tool becomes a tool error
+inside HTTP 200, which does not provide the OAuth client a standards-level
+signal to request stronger authorization. The transport-level 403 preserves
+OAuth step-up semantics while defense-in-depth remains in the control plane.
+
+**Status:** accepted and implemented.
+
+## ADR-024 — Support a minimum token issuance epoch
+
+**Decision:** support optional `AI_LAB_OAUTH_MIN_IAT` runtime configuration.
+Tokens issued before that Unix timestamp are rejected.
+
+**Reasoning:** revoking an Auth0 Authorized Application grant removes
+consent/refresh state but does not necessarily invalidate already-issued
+self-contained access JWTs before their normal expiry. A local issuance cutoff
+provides an explicit emergency/maintenance reauthorization epoch without
+rotating signing keys.
+
+**Status:** accepted as an operational control; use intentionally and document
+changes.
+
+## ADR-025 — Treat ChatGPT developer-mode app discovery as refreshable but not guaranteed
+
+**Decision:** reconnect an existing developer-mode app first after server
+changes, but if it continues to expose a stale MCP tool catalog or OAuth
+discovery state, create one fresh app against the same MCP URL and validate it
+before removing the old one.
+
+**Reasoning:** during live validation, older development apps did not reliably
+pick up newly added tools or corrected OAuth scope discovery. A fresh app
+created after the corrected v1 server state immediately passed control and file
+operations. This is empirical product behavior rather than a protocol
+invariant.
+
+**Status:** accepted operational guidance; revalidate after major ChatGPT
+product changes.
+
+## ADR-026 — Stable v1 MCP surface is six generic Linux primitives
+
+**Decision:** the v1 public MCP surface is:
+
+- `gateway_status`;
+- `list_devices`;
+- `device_status`;
+- `exec`;
+- `read_file`;
+- `write_file`.
+
+**Reasoning:** these generic primitives are sufficient for AI-driven Linux lab
+work while keeping hardware-specific behavior on the target. They also provide
+a small surface that can be authorized, tested and audited clearly.
+
+**Status:** accepted and validated through the real ChatGPT -> OAuth -> MCP ->
+policy -> reverse SSH -> target path.
