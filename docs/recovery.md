@@ -93,12 +93,18 @@ A future rebuild should proceed in this order:
    systemd tunnel, and add the device registry entry.
 9. Run the full 11-item device acceptance checklist before making a device
    eligible for MCP control.
-10. Configure an established OAuth/OIDC authorization server according to
-    `docs/authentication.md`; implement cryptographic token verification and
-    the deny-by-default authorization gate.
-11. Only after step 10 succeeds end-to-end, wire the existing control plane and
-    SSH backend into public MCP device tools.
-12. Re-run repository tests plus real MCP and device-path acceptance tests.
+10. Configure Auth0/OAuth according to `docs/authentication.md` and the
+    detailed `docs/chatgpt-auth0-oauth-runbook.md`: exact `/mcp` resource
+    audience, CIMD client import, both v1 scopes, Google/domain-level login
+    connection, cryptographic token verification, protected-resource metadata,
+    and deny-by-default authorization.
+11. Verify the public metadata and unauthenticated 401 challenge before creating
+    a ChatGPT developer-mode app. If a materially changed tool catalog or OAuth
+    discovery state is not reflected after reconnect, create one fresh
+    developer-mode app rather than assuming old app state will refresh.
+12. Validate all six v1 tools through the real ChatGPT path, including a harmless
+    command and a temporary write/read/cleanup round trip.
+13. Re-run repository tests plus real MCP and device-path acceptance tests.
 
 The historical commands, incidents, firewall nuances, and first-device
 validation evidence are recorded in `docs/build-log.md`.
@@ -154,6 +160,9 @@ Read in this order:
 - `docs/device-tunnels.md` — reverse SSH design and hardening.
 - `docs/bootstrap-device.md` — repeatable device enrollment and acceptance.
 - `docs/authentication.md` — OAuth resource-server design.
+- `docs/chatgpt-auth0-oauth-runbook.md` — exact ChatGPT/Auth0 reconstruction,
+  scope-step-up behavior, token cutoff, product-state pitfalls, diagnostics and
+  final acceptance sequence.
 - `docs/implementation-status.md` — what is actually implemented/live versus
   deliberately pending.
 - `docs/build-log.md` — chronological evidence, troubleshooting details, and
@@ -162,10 +171,10 @@ Read in this order:
 Then inspect `src/`, `deploy/`, `scripts/`, `config/`, tests, and the
 Git history before modifying production behavior.
 
-## Known unfinished work at this checkpoint
+## Current post-v1 work
 
-The transport and first-device path are validated. The next architectural
-milestone is identity-to-execution integration:
+Identity-to-execution integration is complete and has been validated through the
+real ChatGPT product path:
 
 ```text
 AI client
@@ -178,11 +187,19 @@ AI client
   -> audit metadata
 ```
 
-At this checkpoint the public MCP remains status-only. OAuth provider selection,
-cryptographic token verification, live authorization wiring, public MCP
-device-control tools, audit retention, and final ChatGPT product integration
-remain intentionally unfinished.
+The public v1 surface now includes status, device discovery/status, command
+execution, text-file read and text-file write. The remaining work is operational
+hardening and scale rather than completion of the basic control path:
 
-Before continuing after a long hiatus, recheck current MCP/OpenAI client
-requirements and OAuth interoperability rather than assuming historical product
-behavior is unchanged.
+- validate/deploy any repository commits newer than the last live acceptance;
+- finalize audit rotation/retention;
+- replace prototype JSON registry/authorization if scale requires a database;
+- define narrow sudo only for concrete privileged target operations;
+- remove stale ChatGPT development apps and old Auth0 rollback objects after
+  the rollback window;
+- use owned Google OAuth credentials for a long-lived production deployment;
+- consider a deterministic deployment helper and reserved/stable public IP.
+
+Before continuing after a long hiatus, recheck current MCP/OpenAI/Auth0 behavior
+rather than assuming the October 2026 developer-mode UI and snapshot behavior
+remain unchanged.
