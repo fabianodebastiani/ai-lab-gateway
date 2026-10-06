@@ -1,8 +1,8 @@
 """SSH execution backend.
 
-This module is intentionally not exposed as an MCP tool yet. Authentication and
-user-to-device authorization must be in place before remote execution becomes
-part of the public MCP surface.
+The MCP control plane invokes this backend only after OAuth scope checks,
+deny-by-default subject/device/action authorization, registry validation, and
+strict per-device SSH identity selection have succeeded.
 """
 
 from dataclasses import dataclass
