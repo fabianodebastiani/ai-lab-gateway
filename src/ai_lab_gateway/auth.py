@@ -12,6 +12,8 @@ from typing import Any
 import jwt
 from jwt import PyJWKClient
 from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url
+from pydantic import AnyHttpUrl
 
 
 @dataclass(frozen=True)
@@ -24,23 +26,35 @@ class AuthConfig:
 
     @classmethod
     def from_env(cls) -> "AuthConfig":
+        issuer = os.getenv("AI_LAB_OAUTH_ISSUER")
+        audience = os.getenv("AI_LAB_OAUTH_AUDIENCE")
+        jwks_url = os.getenv("AI_LAB_OAUTH_JWKS_URL")
         required = {
-            "issuer": os.getenv("AI_LAB_OAUTH_ISSUER"),
-            "audience": os.getenv("AI_LAB_OAUTH_AUDIENCE"),
-            "jwks_url": os.getenv("AI_LAB_OAUTH_JWKS_URL"),
-            "resource_metadata_url": os.getenv(
-                "AI_LAB_OAUTH_RESOURCE_METADATA_URL",
-                "https://gateway.debasti.com/.well-known/oauth-protected-resource",
-            ),
+            "issuer": issuer,
+            "audience": audience,
+            "jwks_url": jwks_url,
         }
         missing = [key for key, value in required.items() if not value]
         if missing:
             raise RuntimeError(
                 "missing OAuth configuration: " + ", ".join(sorted(missing))
             )
+
+        resource_metadata_url = os.getenv("AI_LAB_OAUTH_RESOURCE_METADATA_URL")
+        if not resource_metadata_url:
+            resource_metadata_url = str(
+                build_resource_metadata_url(AnyHttpUrl(audience))
+            )
+
         min_iat_raw = os.getenv("AI_LAB_OAUTH_MIN_IAT")
         min_iat = int(min_iat_raw) if min_iat_raw else None
-        return cls(**required, min_iat=min_iat)  # type: ignore[arg-type]
+        return cls(
+            issuer=issuer,
+            audience=audience,
+            jwks_url=jwks_url,
+            resource_metadata_url=resource_metadata_url,
+            min_iat=min_iat,
+        )  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True)
