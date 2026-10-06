@@ -424,6 +424,23 @@ Observed behavior:
 The final successful developer-mode app in the validation sequence was the
 first one created after the corrected metadata/scope behavior was fully live.
 
+### Reference debugging sequence
+
+During the October 2026 validation, the developer-mode app named
+`AI Lab Gateway 05` was created after the six v1 tools existed, so it exposed
+all six tools, but it retained the earlier read-only OAuth discovery state.
+Repeated reconnect/revoke/reauthorize attempts did not make its control calls
+work reliably.
+
+The next fresh app, `AI Lab Gateway 06`, was created only after the corrected
+protected-resource metadata, control scope, scope-step-up behavior, and Auth0
+grant were all live. It immediately passed `list_devices`,
+`device_status`, `exec`, `write_file`, and `read_file`.
+
+The numeric names are not architectural identifiers; they are preserved here
+only as historical evidence that a fresh ChatGPT app snapshot resolved the
+stale-client problem.
+
 ### Practical rule
 
 After a material change to either:
