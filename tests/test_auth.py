@@ -97,3 +97,35 @@ def test_auth0_verifier_rejects_invalid_claims(overrides):
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     verifier = Auth0TokenVerifier(config(), StaticJWKClient(private_key.public_key()))
     assert asyncio.run(verifier.verify_token(make_token(private_key, **overrides))) is None
+
+
+def test_auth0_verifier_rejects_token_issued_before_cutoff():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cfg = config()
+    cfg = AuthConfig(
+        issuer=cfg.issuer,
+        audience=cfg.audience,
+        jwks_url=cfg.jwks_url,
+        resource_metadata_url=cfg.resource_metadata_url,
+        min_iat=int(time.time()),
+    )
+    verifier = Auth0TokenVerifier(cfg, StaticJWKClient(private_key.public_key()))
+    old_iat = int(time.time()) - 60
+    assert asyncio.run(
+        verifier.verify_token(make_token(private_key, iat=old_iat))
+    ) is None
+
+
+def test_auth0_verifier_accepts_token_issued_after_cutoff():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cutoff = int(time.time()) - 1
+    cfg = config()
+    cfg = AuthConfig(
+        issuer=cfg.issuer,
+        audience=cfg.audience,
+        jwks_url=cfg.jwks_url,
+        resource_metadata_url=cfg.resource_metadata_url,
+        min_iat=cutoff,
+    )
+    verifier = Auth0TokenVerifier(cfg, StaticJWKClient(private_key.public_key()))
+    assert asyncio.run(verifier.verify_token(make_token(private_key))) is not None
