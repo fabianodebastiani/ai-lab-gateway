@@ -682,3 +682,18 @@ text, file contents, stdout and stderr.
 
 This closes the v1 audit acceptance gap. The real OAuth subject remains private
 runtime data and is intentionally not copied into the public repository.
+
+
+## 2026-10-06 — Final v1 audit validation and stale app cleanup
+
+After the final deployment, the known-good ChatGPT developer-mode app exercised
+`device_status`, `write_file`, `read_file`, and `exec` against the live
+target. The private production JSONL audit log recorded all four action classes
+successfully with timestamp, authenticated subject, device ID, action, result,
+duration, and exit code, while omitting command text, file contents, stdout, and
+stderr.
+
+Obsolete ChatGPT developer-mode snapshots were then cleaned up. Apps 03, 04,
+and 05 were uninstalled; 01 and 02 were already absent. The known-good app 06
+was intentionally retained because it was the first app created after the final
+OAuth metadata/scope corrections and had passed the complete v1 acceptance.
