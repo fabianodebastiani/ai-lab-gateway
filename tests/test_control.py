@@ -80,6 +80,7 @@ def test_read_file_requires_read_scope(monkeypatch, tmp_path):
     control = make_control(tmp_path)
     monkeypatch.setattr("ai_lab_gateway.control.execute", lambda device, command, timeout: CommandResult("hello", "", 0))
     assert control.read_file(identity("alice", "gateway:read"), "pi", "/tmp/x") == "hello"
+    assert '"action":"read_file"' in (tmp_path / "audit.jsonl").read_text()
     try:
         control.read_file(identity("alice", "gateway:control"), "pi", "/tmp/x")
     except PermissionError:
@@ -97,6 +98,7 @@ def test_write_file_requires_control_scope(monkeypatch, tmp_path):
     monkeypatch.setattr("ai_lab_gateway.control.execute", fake_execute)
     control.write_file(identity("alice", "gateway:control"), "pi", "/tmp/x", "hello")
     assert "base64 -d" in seen["command"]
+    assert '"action":"write_file"' in (tmp_path / "audit.jsonl").read_text()
     try:
         control.write_file(identity("alice", "gateway:read"), "pi", "/tmp/x", "hello")
     except PermissionError:
