@@ -697,3 +697,20 @@ Obsolete ChatGPT developer-mode snapshots were then cleaned up. Apps 03, 04,
 and 05 were uninstalled; 01 and 02 were already absent. The known-good app 06
 was intentionally retained because it was the first app created after the final
 OAuth metadata/scope corrections and had passed the complete v1 acceptance.
+
+
+## 2026-10-06 — Auth0 rollback API removed
+
+After AI Lab Gateway 06 passed the complete v1 acceptance and the stale
+developer-mode apps were removed, the obsolete Auth0 API whose identifier was
+the root URL without `/mcp` was deleted.
+
+The remaining canonical Auth0 API/resource identifier is:
+
+```text
+https://gateway.debasti.com/mcp
+```
+
+A post-cleanup live check through the known-good ChatGPT app still succeeded for
+both device discovery and a real control command, confirming that removal of
+the old rollback API did not affect the active OAuth/MCP path.
