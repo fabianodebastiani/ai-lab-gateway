@@ -15,6 +15,11 @@ from .registry import DeviceRegistry
 from .ssh_exec import CommandResult, execute
 
 
+def _shell_quote(value: str) -> str:
+    """Quote one value for the remote POSIX shell."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 @dataclass
 class ControlPlane:
     registry: DeviceRegistry
@@ -65,6 +70,28 @@ class ControlPlane:
                 duration_ms=duration_ms,
                 exit_code=result.exit_code if result else None,
             ))
+
+    def read_file(self, identity: VerifiedIdentity, device_id: str, path: str,
+                  timeout: int = 30) -> str:
+        """Read a text file from an authorized device."""
+        self._authorize(identity, device_id, "read_file", "gateway:read")
+        device = self.registry.get(device_id)
+        result = execute(device, f"cat -- {_shell_quote(path)}", timeout)
+        if result.exit_code != 0:
+            raise RuntimeError(f"remote read failed with exit code {result.exit_code}: {result.stderr.strip()}")
+        return result.stdout
+
+    def write_file(self, identity: VerifiedIdentity, device_id: str, path: str,
+                   content: str, timeout: int = 30) -> None:
+        """Write a UTF-8 text file on an authorized device."""
+        self._authorize(identity, device_id, "write_file", "gateway:control")
+        device = self.registry.get(device_id)
+        import base64
+        payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        command = f"printf %s {_shell_quote(payload)} | base64 -d > {_shell_quote(path)}"
+        result = execute(device, command, timeout)
+        if result.exit_code != 0:
+            raise RuntimeError(f"remote write failed with exit code {result.exit_code}: {result.stderr.strip()}")
 
     def exec(self, identity: VerifiedIdentity, device_id: str, command: str,
              timeout: int = 30) -> CommandResult:
