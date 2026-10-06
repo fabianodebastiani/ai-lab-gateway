@@ -30,7 +30,7 @@ mcp = MCPServer(
     token_verifier=Auth0TokenVerifier(auth_config),
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(auth_config.issuer),
-        resource_server_url=AnyHttpUrl("https://gateway.debasti.com/mcp"),
+        resource_server_url=AnyHttpUrl(auth_config.audience),
         required_scopes=["gateway:read"],
         validate_token_resource=False,
     ),
@@ -124,16 +124,21 @@ def write_file(device_id: str, path: str, content: str, timeout: int = 30) -> di
     return {"status": "ok"}
 
 
-def main() -> None:
-    """Run the MCP server using Streamable HTTP."""
-    mcp.run(
-        transport="streamable-http",
-        host="127.0.0.1",
-        port=8000,
+def _http_app():
+    """Build the production ASGI app with complete OAuth metadata."""
+    sdk_app = mcp.streamable_http_app(
+        streamable_http_path="/mcp",
         json_response=True,
         stateless_http=True,
         transport_security=transport_security,
+        host="127.0.0.1",
     )
+    return ProtectedResourceMetadataOverride(sdk_app, auth_config)
+
+
+def main() -> None:
+    """Run the MCP server using Streamable HTTP."""
+    uvicorn.run(_http_app(), host="127.0.0.1", port=8000, log_level="info")
 
 
 if __name__ == "__main__":
