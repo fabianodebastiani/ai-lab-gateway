@@ -131,11 +131,10 @@ raspberry-lab -> gateway 127.0.0.1:10001 -> target sshd :22
 
 Tunnel and target-management SSH identities are separate.
 
-## Authentication gate
+## Authentication and control gate
 
-The SSH execution backend already exists and has been validated against a real
-target, including application timeout. It must not be registered as a public
-MCP control tool until all of these occur in the same request path:
+The v1 public MCP control surface is live. Every device operation must preserve
+this request-path gate:
 
 ```text
 cryptographically valid OAuth token
@@ -145,7 +144,18 @@ AND enabled registry entry
 AND valid target-management SSH credential
 ```
 
-See `docs/authentication.md` and `docs/security-model.md`.
+The global MCP boundary requires `gateway:read`. `exec` and `write_file`
+additionally require `gateway:control`.
+
+The deployment also includes repository-owned wrappers for:
+
+- RFC 9728 metadata that advertises both supported scopes without widening the
+  SDK's global required scope;
+- HTTP 403 `insufficient_scope` step-up for privileged tool calls;
+- optional minimum token issuance time through `AI_LAB_OAUTH_MIN_IAT`.
+
+See `docs/authentication.md`,
+`docs/chatgpt-auth0-oauth-runbook.md`, and `docs/security-model.md`.
 
 ## Rebuild acceptance
 
@@ -163,3 +173,84 @@ service starts. Before declaring it operational:
 
 The chronological evidence and troubleshooting history behind these
 requirements is in `docs/build-log.md`.
+
+
+## Validated update/deploy procedure
+
+The reference VM keeps a working Git checkout under the administrator's home
+directory and the production copy under `/opt/ai-lab-gateway`.
+
+Before touching production:
+
+```bash
+cd ~/ai-lab-gateway
+git pull --ff-only
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/pytest -q
+```
+
+Only after the full test suite passes:
+
+```bash
+sudo rsync -a --delete \
+  --exclude='.git' \
+  --exclude='.venv' \
+  --exclude='.pytest_cache' \
+  --exclude='*.egg-info' \
+  ~/ai-lab-gateway/ /opt/ai-lab-gateway/
+
+sudo chown -R root:ai-lab-gateway /opt/ai-lab-gateway
+sudo /opt/ai-lab-gateway/.venv/bin/pip install /opt/ai-lab-gateway
+sudo systemctl restart ai-lab-gateway
+```
+
+Verify service state:
+
+```bash
+sudo systemctl show ai-lab-gateway \
+  --property=ActiveState,SubState,MainPID
+```
+
+Expected:
+
+```text
+ActiveState=active
+SubState=running
+```
+
+Then verify public OAuth discovery before testing ChatGPT:
+
+```bash
+curl -sS \
+  https://gateway.debasti.com/.well-known/oauth-protected-resource/mcp \
+  | python3 -m json.tool
+
+curl -sS -D - -o /dev/null https://gateway.debasti.com/mcp
+```
+
+The metadata must advertise both `gateway:read` and `gateway:control`, and
+the unauthenticated MCP response must be 401 with a `resource_metadata`
+challenge pointing to the `/mcp` well-known URL.
+
+Do not create a new ChatGPT developer-mode app until these public checks are
+correct. Older developer-mode apps can retain stale tool/OAuth discovery state.
+
+## Private runtime files
+
+The production service reads runtime data outside the public repository:
+
+```text
+/etc/ai-lab-gateway/gateway.env
+/etc/ai-lab-gateway/devices.json
+/etc/ai-lab-gateway/authorization.json
+/var/lib/ai-lab-gateway/keys/
+/var/lib/ai-lab-gateway/.ssh/known_hosts
+/var/lib/ai-lab-gateway/audit.jsonl
+```
+
+Do not copy real subject identifiers, private keys, tokens, authorization files,
+or production environment contents into Git.
+
+The environment includes issuer, audience and JWKS configuration. The optional
+`AI_LAB_OAUTH_MIN_IAT` value can be used as an intentional token-issuance
+cutoff after revoking an Auth0 grant; see the OAuth runbook before changing it.
