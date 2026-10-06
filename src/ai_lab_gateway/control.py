@@ -38,6 +38,34 @@ class ControlPlane:
                 visible.append({"id": device.id, "name": device.name})
         return visible
 
+    def device_status(self, identity: VerifiedIdentity, device_id: str) -> dict[str, str | int]:
+        """Return minimal live status from an authorized device over SSH."""
+        self._authorize(identity, device_id, "status", "gateway:read")
+        device = self.registry.get(device_id)
+        started = monotonic()
+        result: CommandResult | None = None
+        success = False
+        try:
+            result = execute(device, "hostname", 10)
+            success = result.exit_code == 0
+            return {
+                "id": device.id,
+                "name": device.name,
+                "hostname": result.stdout.strip(),
+                "status": "online" if success else "error",
+                "exit_code": result.exit_code,
+            }
+        finally:
+            duration_ms = int((monotonic() - started) * 1000)
+            self.audit.append(AuditEvent(
+                subject=identity.subject,
+                device_id=device_id,
+                action="status",
+                success=success,
+                duration_ms=duration_ms,
+                exit_code=result.exit_code if result else None,
+            ))
+
     def exec(self, identity: VerifiedIdentity, device_id: str, command: str,
              timeout: int = 30) -> CommandResult:
         self._authorize(identity, device_id, "exec", "gateway:control")
