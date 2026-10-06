@@ -51,3 +51,15 @@ is evidence after an authorization decision, not an access-control mechanism.
 Retention, rotation, backup and deletion periods are intentionally not fixed
 yet. Define them before treating the JSONL sink as a long-term production audit
 system.
+
+
+## Live validation
+
+After the final v1 deployment, a real ChatGPT session exercised device status,
+remote text-file write, remote text-file read, and command execution. The
+production JSONL sink recorded all four corresponding actions with successful
+outcomes.
+
+The public documentation does not reproduce the real OAuth subject from those
+events. Subject identifiers are private runtime data even though the audit file
+itself is expected to contain them.
