@@ -73,25 +73,61 @@ class ControlPlane:
 
     def read_file(self, identity: VerifiedIdentity, device_id: str, path: str,
                   timeout: int = 30) -> str:
-        """Read a text file from an authorized device."""
+        """Read a text file from an authorized device and audit the attempt."""
         self._authorize(identity, device_id, "read_file", "gateway:read")
         device = self.registry.get(device_id)
-        result = execute(device, f"cat -- {_shell_quote(path)}", timeout)
-        if result.exit_code != 0:
-            raise RuntimeError(f"remote read failed with exit code {result.exit_code}: {result.stderr.strip()}")
-        return result.stdout
+        started = monotonic()
+        result: CommandResult | None = None
+        success = False
+        try:
+            result = execute(device, f"cat -- {_shell_quote(path)}", timeout)
+            success = result.exit_code == 0
+            if not success:
+                raise RuntimeError(
+                    f"remote read failed with exit code {result.exit_code}: "
+                    f"{result.stderr.strip()}"
+                )
+            return result.stdout
+        finally:
+            duration_ms = int((monotonic() - started) * 1000)
+            self.audit.append(AuditEvent(
+                subject=identity.subject,
+                device_id=device_id,
+                action="read_file",
+                success=success,
+                duration_ms=duration_ms,
+                exit_code=result.exit_code if result else None,
+            ))
 
     def write_file(self, identity: VerifiedIdentity, device_id: str, path: str,
                    content: str, timeout: int = 30) -> None:
-        """Write a UTF-8 text file on an authorized device."""
+        """Write a UTF-8 text file on an authorized device and audit the attempt."""
         self._authorize(identity, device_id, "write_file", "gateway:control")
         device = self.registry.get(device_id)
         import base64
         payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
         command = f"printf %s {_shell_quote(payload)} | base64 -d > {_shell_quote(path)}"
-        result = execute(device, command, timeout)
-        if result.exit_code != 0:
-            raise RuntimeError(f"remote write failed with exit code {result.exit_code}: {result.stderr.strip()}")
+        started = monotonic()
+        result: CommandResult | None = None
+        success = False
+        try:
+            result = execute(device, command, timeout)
+            success = result.exit_code == 0
+            if not success:
+                raise RuntimeError(
+                    f"remote write failed with exit code {result.exit_code}: "
+                    f"{result.stderr.strip()}"
+                )
+        finally:
+            duration_ms = int((monotonic() - started) * 1000)
+            self.audit.append(AuditEvent(
+                subject=identity.subject,
+                device_id=device_id,
+                action="write_file",
+                success=success,
+                duration_ms=duration_ms,
+                exit_code=result.exit_code if result else None,
+            ))
 
     def exec(self, identity: VerifiedIdentity, device_id: str, command: str,
              timeout: int = 30) -> CommandResult:
