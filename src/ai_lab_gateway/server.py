@@ -22,14 +22,16 @@ from .authz import AuthorizationPolicy
 from .control import ControlPlane
 from .oauth_metadata import ProtectedResourceMetadataOverride
 from .registry import DeviceRegistry
+from .scope_stepup import OAuthScopeStepUp
 
 auth_config = AuthConfig.from_env()
+token_verifier = Auth0TokenVerifier(auth_config)
 
 mcp = MCPServer(
     "AI Lab Gateway",
     description="Remote MCP gateway for controlled access to Linux lab devices",
     version="0.1.0",
-    token_verifier=Auth0TokenVerifier(auth_config),
+    token_verifier=token_verifier,
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(auth_config.issuer),
         resource_server_url=AnyHttpUrl(auth_config.audience),
@@ -135,7 +137,8 @@ def _http_app():
         transport_security=transport_security,
         host="127.0.0.1",
     )
-    return ProtectedResourceMetadataOverride(sdk_app, auth_config)
+    scoped_app = OAuthScopeStepUp(sdk_app, token_verifier, auth_config)
+    return ProtectedResourceMetadataOverride(scoped_app, auth_config)
 
 
 def main() -> None:
