@@ -129,3 +129,16 @@ def test_auth0_verifier_accepts_token_issued_after_cutoff():
     )
     verifier = Auth0TokenVerifier(cfg, StaticJWKClient(private_key.public_key()))
     assert asyncio.run(verifier.verify_token(make_token(private_key))) is not None
+
+
+def test_auth_config_derives_resource_metadata_url_from_audience(monkeypatch):
+    monkeypatch.setenv("AI_LAB_OAUTH_ISSUER", "https://auth.example/")
+    monkeypatch.setenv("AI_LAB_OAUTH_AUDIENCE", "https://gateway.example/mcp")
+    monkeypatch.setenv("AI_LAB_OAUTH_JWKS_URL", "https://auth.example/jwks")
+    monkeypatch.delenv("AI_LAB_OAUTH_RESOURCE_METADATA_URL", raising=False)
+
+    cfg = AuthConfig.from_env()
+
+    assert cfg.resource_metadata_url == (
+        "https://gateway.example/.well-known/oauth-protected-resource/mcp"
+    )
