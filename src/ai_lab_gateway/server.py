@@ -1,7 +1,7 @@
 """AI Lab Gateway MCP server.
 
-The public MCP surface is deliberately small. Authenticated read-only device
-listing is exposed before any command-execution capability.
+The public MCP surface provides a small set of generic remote-Linux primitives.
+OAuth scopes and the per-device authorization policy jointly gate operations.
 """
 
 from datetime import datetime, timezone
@@ -9,6 +9,7 @@ import os
 import platform
 import socket
 
+import uvicorn
 from pydantic import AnyHttpUrl
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
@@ -19,6 +20,7 @@ from .audit import JsonlAuditLog
 from .auth import Auth0TokenVerifier, AuthConfig, identity_from_verified_claims
 from .authz import AuthorizationPolicy
 from .control import ControlPlane
+from .oauth_metadata import ProtectedResourceMetadataOverride
 from .registry import DeviceRegistry
 
 auth_config = AuthConfig.from_env()
