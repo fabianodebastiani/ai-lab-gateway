@@ -33,23 +33,43 @@ Remote devices initiate outbound SSH connections to the gateway. This avoids req
 
 ## Status
 
-The transport foundation is live and validated. The public HTTPS MCP endpoint works, the first remote Linux device maintains a persistent reverse-SSH tunnel through NAT, and gateway-to-device command execution has passed the complete 11-item live acceptance checklist, including reboot recovery, credential-isolation negative tests, and application-level timeout.
+The v1 control path is live and validated end-to-end.
 
-The public MCP surface remains intentionally status-only. Remote execution will be exposed only after OAuth identity verification and deny-by-default subject/device/action authorization are enforced end-to-end.
+The public HTTPS MCP endpoint authenticates ChatGPT users through Auth0, verifies
+OAuth tokens and scopes, applies deny-by-default subject/device/action policy,
+and reaches registered Linux targets over per-device management SSH identities
+through loopback-only reverse SSH tunnels.
 
-See [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md), [docs/build-log.md](docs/build-log.md), and [docs/recovery.md](docs/recovery.md).
+The first live target passed the complete tunnel/credential/reboot/timeout
+acceptance checklist. A fresh ChatGPT developer-mode app then validated all six
+v1 tools through the real production path:
+
+- `gateway_status`
+- `list_devices`
+- `device_status`
+- `exec`
+- `read_file`
+- `write_file`
+
+The final acceptance included real `uname -a` execution plus a temporary
+remote file write/read/cleanup round trip.
+
+See [docs/architecture.md](docs/architecture.md),
+[docs/decisions.md](docs/decisions.md),
+[docs/build-log.md](docs/build-log.md),
+[docs/recovery.md](docs/recovery.md), and the detailed
+[ChatGPT + Auth0 OAuth runbook](docs/chatgpt-auth0-oauth-runbook.md).
 
 
 ## Implementation map
 
-The live public MCP endpoint is intentionally status-only while authentication
-is being completed. Repository-side work for device registry, authorization,
-reverse SSH, audit and deployment is tracked in
+Current live/repository state is tracked in
 [docs/implementation-status.md](docs/implementation-status.md).
 
 Prepared runbooks:
 - [Recovery / rebuild from scratch](docs/recovery.md)
 - [Authentication](docs/authentication.md)
+- [ChatGPT + Auth0 OAuth runbook](docs/chatgpt-auth0-oauth-runbook.md)
 - [Device tunnels](docs/device-tunnels.md)
 - [Device bootstrap](docs/bootstrap-device.md)
 - [Security model](docs/security-model.md)
