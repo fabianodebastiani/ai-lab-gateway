@@ -165,3 +165,26 @@ denial still require authenticated session CSRF and per-decision TOTP.
 A fresh GET of `/approvals` is needed to obtain the new form and cookie.
 The Oracle deployment passed **50 pytest tests**; web, broker, and MCP remain
 active. A new human-browser attempt remains to be verified.
+
+## Browser POST compatibility follow-up — 2026-10-14 (v0.5.5)
+
+A Chrome session still displayed `Origem ou rota inválida` after the prior
+login form-CSRF fix, before password checking. The server's earlier approach
+also required metadata such as `Origin` and `Sec-Fetch-Site`, which can
+vary with extensions and intermediaries.
+
+In v0.5.5, the application validates the exact public Host and
+`application/x-www-form-urlencoded` form encoding; CSRF resistance is
+enforced using the unpredictable 10-minute login form token tied to its own
+`Secure; HttpOnly; SameSite=Strict` cookie. Approval/denial still requires
+the authenticated session's CSRF token **plus a fresh TOTP code**. Neither
+endpoint trusts the mere presence of a browser Origin header.
+
+Synthetic HTTPS tests through Caddy confirmed that standard, omitted and
+nonstandard Origin/Fetch-Metadata combinations all passed the form gate
+and reached password validation when paired with a valid form token. Requests
+cannot skip the cookie-bound CSRF check. The Oracle installation passed
+**50 pytest tests**; the approval service, privilege broker and MCP remained
+active; `/approvals` returned 200 and `/approvals/health` returned 200.
+A real browser login with v0.5.5 is awaiting human confirmation. No real
+credential content was accessed or disclosed in the diagnostic.
