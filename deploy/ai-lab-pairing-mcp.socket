@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Lab Gateway v2 MCP pairing requests socket
+
+[Socket]
+ListenStream=/run/ai-lab-pairing/mcp.sock
+SocketUser=ai-lab-pairing
+SocketGroup=ai-lab-gateway
+SocketMode=0660
+DirectoryMode=0711
+FileDescriptorName=mcp
+Service=ai-lab-pairing.service
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target
