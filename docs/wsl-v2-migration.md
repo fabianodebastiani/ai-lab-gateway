@@ -18,6 +18,44 @@ Do not treat this file as proof the v2 pairing API is already deployed.
   Oracle gateway, consistent with an on-demand WSL tunnel currently off.
   Gateway, human-approval web and privileged broker services remained active.
 
+## Live WSL connection verified — 2026-10-14 02:56 UTC
+
+After the operator restarted the existing `ai-lab-wsl-tunnel.service` on
+Ubuntu WSL, the authorized MCP `device_status("windows-wsl")` returned
+**online** with hostname `LAPTOP-5RJJ0KBM`; the Oracle Gateway listened
+on loopback port **10002**, and its other services remained active.
+Remote management SSH returned non-root `ai-gateway`.
+
+The current service is `ActiveState=active`, `UnitFileState=disabled`,
+`Restart=on-failure`, `User=ai-gateway`. The systemd unit includes strict
+SSH host-key checking, connection keepalives and
+`ExitOnForwardFailure=yes`. The WSL Linux has `systemd=true`.
+This is the intended **On-demand** configuration: starting the service
+connects, stopping disconnects, and an ssh failure while running restarts
+it; there is **no** Linux auto-start on next WSL boot.
+
+The first reusable v2 local management helper was published at
+`scripts/device-connection.sh` and copied to
+`/home/ai-gateway/device-connection-v2.sh` solely for non-destructive
+WSL tests. Bash syntax validation and read-only status succeeded:
+
+```text
+unit=ai-lab-wsl-tunnel.service
+mode=on-demand
+active=active
+systemd-enabled=disabled
+```
+
+An invalid unit `ssh.service` was rejected, exit 2. The helper was
+**not installed as a privileged system command**, and no WSL keys, sudo
+grants, systemd configuration or old tunnel were changed. The current
+production listener still uses port 10002; the v2 candidate port 10003
+is not yet enrolled. We will preserve On-demand behavior during cutover.
+
+**Connection mode != permission mode:** future pairing defaults Restricted,
+while connection mode is chosen separately (On-demand for WSL laptops;
+Persistent for always-on Linux/servers).
+
 ## Product decision
 
 **Pairing always produces a Restricted device.** Only later may the operator
@@ -70,14 +108,22 @@ recovery account, or an explicitly whitelisted deployment mechanism).
 Never try to reintroduce general passwordless sudo or use MCP operational
 commands to bypass this boundary.
 
-## Current user action
+## Next steps
 
-The next *non-destructive* step is to use the existing Windows desktop
-shortcut **`Conectar AI Lab.bat`** to bring the old WSL tunnel online.
-Then the assistant can inspect and prepare the new enrollment against the
-live WSL, without needing the user to reveal keys or passwords.
+1. Implement a pairing API and target installer that support independent
+   On-demand/Persistent connection mode and enforce Restricted access on
+   enrollment.
+2. Stage a fresh, separately generated SSH identity on an unused loopback
+   port (proposed 10003), without touching the old functioning SSH keys.
+3. Arrange a narrowly authorized Oracle administrative deployment to
+   provision the protected device registry, SSH tunnel allowlist and
+   management key. Do not reinstate general passwordless sudo.
+4. Validate the new candidate tunnel (host identity, non-root user,
+   rejection of unauthorized sudo, reconnect tests, on-demand start/stop).
+5. Switch `windows-wsl` to the new connection and revoke old credentials
+   only after verified successful cutover. Retain the existing Windows
+   connect/disconnect shortcuts or replace them with equivalent
+   one-click controls.
 
-If the shortcut fails, use a Windows terminal to start the Ubuntu WSL
-distribution and inspect the existing service, then troubleshoot before
-changing credentials. Do **not** delete old service, keys or Gateway entries
-to force a reconnection.
+**No immediate manual action is required** while code and tests are
+prepared. Keep the current WSL connection running for development.
