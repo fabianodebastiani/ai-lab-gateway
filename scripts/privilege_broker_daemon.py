@@ -3,7 +3,7 @@
 
 Root-owned Unix socket service. The MCP gateway authenticates OAuth subjects;
 the broker trusts only its dedicated Unix service UID to forward that identity.
-Root console CLI is the ONLY approval interface. No arbitrary shell commands.
+Human approvals use either the root CLI or a separately authenticated web service.\nNo arbitrary shell commands.
 """
 import argparse
 import fcntl
@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +28,7 @@ DB = STATE / "requests.json"
 AUDIT = STATE / "requests-audit.jsonl"
 LOCK = STATE / "requests.lock"
 SOCKET = Path("/run/ai-lab-privilege-broker/broker.sock")
+APPROVAL_SOCKET = Path("/run/ai-lab-privilege-broker/approval.sock")
 OPERATIONS = {
     "gateway-service-status": ("/usr/bin/systemctl", "is-active", "ai-lab-gateway"),
     "gateway-service-enabled": ("/usr/bin/systemctl", "is-enabled", "ai-lab-gateway"),
@@ -208,36 +210,113 @@ class Handler(socketserver.StreamRequestHandler):
             except OSError:
                 pass
 
+def approval_dispatch(message):
+    """Root-owned broker accepts admin decisions only from approval service UID."""
+    if not isinstance(message, dict):
+        return {"ok": False, "error": "invalid_request"}
+    action = message.get("action")
+    with locked():
+        entries = load()
+        now = int(time.time())
+        if action == "list":
+            pending = [
+                {"request_id": rid, "operation": item["operation"],
+                 "subject": item["subject"], "device_id": item.get("device_id"),
+                 "created_at": item["created_at"],
+                 "approval_deadline": item["approval_deadline"],
+                 "ttl_seconds": item["ttl_seconds"]}
+                for rid, item in entries.items()
+                if item.get("status") == "pending"
+                and now < item.get("approval_deadline", 0)
+            ]
+            return {"ok": True, "requests": pending[:200]}
+        if action not in ("approve", "deny"):
+            audit("web_approval", "unsupported")
+            return {"ok": False, "error": "unsupported"}
+        rid = message.get("request_id")
+        if not isinstance(rid, str) or len(rid) > 128:
+            return {"ok": False, "error": "invalid_request_id"}
+        item = entries.get(rid)
+        if not item or item.get("status") != "pending" or now >= item.get("approval_deadline", 0):
+            audit("web_" + action, "not_pending", rid)
+            return {"ok": False, "error": "not_pending"}
+        if action == "approve":
+            item["status"] = "approved"
+            item["approved_at"] = now
+            item["expires_at"] = now + item["ttl_seconds"]
+            item["approval_method"] = "separate_human_web_ui"
+        else:
+            item["status"] = "denied"
+        save(entries)
+        audit("web_" + action, "ok", rid, item.get("subject"))
+        return {"ok": True, "request_id": rid, "status": item["status"],
+                "expires_at": item.get("expires_at")}
+
+
+class ApprovalHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.connection.settimeout(10)
+        try:
+            peer = self.connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                               struct.calcsize("3i"))
+            _, uid, _ = struct.unpack("3i", peer)
+            if uid != pwd.getpwnam("ai-lab-approver").pw_uid:
+                self.wfile.write(b'{"ok":false,"error":"unauthorized_peer"}\n')
+                return
+            raw = self.rfile.readline(MAX_REQUEST_BYTES + 1)
+            if not raw or len(raw) > MAX_REQUEST_BYTES or not raw.endswith(b"\n"):
+                return
+            result = approval_dispatch(json.loads(raw))
+            self.wfile.write((json.dumps(result, separators=(",", ":")) + "\n").encode())
+        except (ValueError, OSError, KeyError, TypeError):
+            try:
+                self.wfile.write(b'{"ok":false,"error":"invalid_message"}\n')
+            except OSError:
+                pass
+
+
 class ThreadServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
     allow_reuse_address = False
 
-def daemon():
-    gid = pwd.getpwnam("ai-lab-gateway").pw_gid
-    SOCKET.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
-    os.chown(SOCKET.parent, 0, gid)
-    os.chmod(SOCKET.parent, 0o750)
-    # Recover from a crash that left behind a stale Unix socket. Never remove
-    # a non-socket path or the socket of a still-running server.
+def prepare_socket(path):
     try:
-        existing = SOCKET.lstat()
+        existing = path.lstat()
     except FileNotFoundError:
         existing = None
     if existing is not None:
         if not stat.S_ISSOCK(existing.st_mode) or existing.st_uid != 0:
-            raise RuntimeError("unexpected socket path: refusing to replace")
+            raise RuntimeError("unexpected Unix socket path")
         with socket.socket(socket.AF_UNIX) as probe:
             probe.settimeout(1)
             try:
-                probe.connect(str(SOCKET))
+                probe.connect(str(path))
             except ConnectionRefusedError:
-                SOCKET.unlink()
+                path.unlink()
             else:
-                raise RuntimeError("another broker is already listening")
-    with ThreadServer(str(SOCKET), Handler) as server:
-        os.chown(SOCKET, 0, gid)
+                raise RuntimeError("broker socket already listening")
+
+
+def daemon():
+    gateway_gid = pwd.getpwnam("ai-lab-gateway").pw_gid
+    approver_gid = pwd.getpwnam("ai-lab-approver").pw_gid
+    # Traversable, but not listable: two independent group-protected sockets.
+    SOCKET.parent.mkdir(mode=0o711, parents=True, exist_ok=True)
+    os.chown(SOCKET.parent, 0, 0)
+    os.chmod(SOCKET.parent, 0o711)
+    prepare_socket(SOCKET)
+    prepare_socket(APPROVAL_SOCKET)
+    with ThreadServer(str(SOCKET), Handler) as operational:
+        os.chown(SOCKET, 0, gateway_gid)
         os.chmod(SOCKET, 0o660)
-        server.serve_forever(poll_interval=0.25)
+        with ThreadServer(str(APPROVAL_SOCKET), ApprovalHandler) as approvals:
+            os.chown(APPROVAL_SOCKET, 0, approver_gid)
+            os.chmod(APPROVAL_SOCKET, 0o660)
+            worker = threading.Thread(target=approvals.serve_forever,
+                                      kwargs={"poll_interval": 0.25},
+                                      daemon=True)
+            worker.start()
+            operational.serve_forever(poll_interval=0.25)
 
 def main():
     if os.geteuid() != 0:
