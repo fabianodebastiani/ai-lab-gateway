@@ -30,6 +30,7 @@ SOCKET = Path("/run/ai-lab-privilege-broker/broker.sock")
 OPERATIONS = {
     "gateway-service-status": ("/usr/bin/systemctl", "is-active", "ai-lab-gateway"),
     "gateway-service-enabled": ("/usr/bin/systemctl", "is-enabled", "ai-lab-gateway"),
+    "broker-root-write-selftest": ("/usr/bin/touch", "/var/lib/ai-lab-privilege-broker/root-write-selftest.ok"),
 }
 MAX_TTL = 86400
 MAX_REQUEST_BYTES = 16384
