@@ -188,3 +188,13 @@ cannot skip the cookie-bound CSRF check. The Oracle installation passed
 active; `/approvals` returned 200 and `/approvals/health` returned 200.
 A real browser login with v0.5.5 is awaiting human confirmation. No real
 credential content was accessed or disclosed in the diagnostic.
+
+## First verified human approval in the browser — 2026-10-14
+
+The operator entered the TOTP code in the HTTPS approvals website and clicked Approve on a pending `gateway-service-status` request. The ChatGPT MCP client then checked the two pending tests and confirmed that one had changed to `approved` while the other was still `pending`.
+
+The approved request was executed through `privilege_execute` via the real Auth0-authenticated MCP connection: `exit_code=0`, `stdout="active\\n"`, status `consumed`. A second execution returned `not_approved` with status `consumed`, confirming single-use enforcement. The other pending duplicate was explicitly revoked via `privilege_revoke` to avoid two identical entries in the approvals UI.
+
+This verifies real **browser login + Google Authenticator approval → root broker → MCP execution → replay denial**. No passwords, TOTP secrets or codes are stored here.
+
+UI observation: duplicate-looking TOTP fields were actually two independent pending requests bearing the same operation name; each request has its own form and approval deadline. Future UI improvement: show shorter request identifier, distinguish requests and group or de-duplicate repeated test requests.
