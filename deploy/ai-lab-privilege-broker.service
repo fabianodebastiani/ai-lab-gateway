@@ -1,0 +1,30 @@
+[Unit]
+Description=AI Lab Gateway supervised privilege broker
+After=local-fs.target
+Before=ai-lab-gateway.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/libexec/ai-lab-privilege-brokerd --serve
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=ai-lab-privilege-broker
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/ai-lab-privilege-broker /run/ai-lab-privilege-broker
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
