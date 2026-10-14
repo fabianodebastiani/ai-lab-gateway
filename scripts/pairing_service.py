@@ -16,14 +16,12 @@ modify the production registry or tunnel-account authorized_keys.
 from __future__ import annotations
 
 import argparse
-import grp
 import json
 import os
 from pathlib import Path
 import pwd
 import socket
 import socketserver
-import stat
 import struct
 import threading
 
@@ -134,40 +132,55 @@ def unix_handler(app: PairingRPC, *, role: str, expected_uid: int):
     return Handler
 
 
-def start_unix_server(path: Path, group_name: str, app: PairingRPC,
-                      role: str, uid: int):
-    if path.exists() or path.is_symlink():
-        # Fail closed: never unlink someone else's socket or symlink.
-        raise RuntimeError(f"socket path already exists: {path}")
-    server = ThreadedUnixServer(str(path), unix_handler(
-        app, role=role, expected_uid=uid
-    ))
-    try:
-        gid = grp.getgrnam(group_name).gr_gid
-        if gid not in os.getgroups() and gid != os.getegid():
-            raise PermissionError("service lacks expected Unix group")
-        os.chown(path, -1, gid)
-        os.chmod(path, 0o660)
-    except BaseException:
-        server.server_close()
-        path.unlink(missing_ok=True)
-        raise
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+def inherited_server(sock: socket.socket, handler):
+    """Adopt a *systemd-created* AF_UNIX stream socket, with no chgrp access.
+
+    systemd socket units own group/mode setup, so the pairing service never
+    joins the gateway's key-reading group or the approver's TOTP-reading group.
+    """
+    if sock.family != socket.AF_UNIX or sock.type & 0xF != socket.SOCK_STREAM:
+        raise RuntimeError("socket activation supplied non-Unix stream fd")
+    server = ThreadedUnixServer(sock.getsockname(), handler, bind_and_activate=False)
+    server.socket.close()  # Replace placeholder with the pre-bound systemd fd.
+    server.socket = sock
+    server.server_address = sock.getsockname()
     return server
+
+
+def systemd_sockets() -> dict[str, socket.socket]:
+    try:
+        pid = int(os.environ.get("LISTEN_PID", "0"))
+        count = int(os.environ.get("LISTEN_FDS", "0"))
+    except ValueError as exc:
+        raise RuntimeError("bad systemd socket activation metadata") from exc
+    names = os.environ.get("LISTEN_FDNAMES", "").split(":")
+    if pid != os.getpid() or count != 2 or set(names) != {"mcp", "approver"}:
+        raise RuntimeError("expected dedicated mcp + approver systemd sockets")
+    sock_map = {}
+    for i, name in enumerate(names):
+        sock_map[name] = socket.socket(fileno=3 + i)
+    if (sock_map["mcp"].getsockname() != str(MCP_SOCKET)
+            or sock_map["approver"].getsockname() != str(APPROVER_SOCKET)):
+        raise RuntimeError("unexpected systemd pairing socket paths")
+    return sock_map
 
 
 def main():
     if os.geteuid() == 0:
         raise PermissionError("pairing service must run as a non-root identity")
     if not STATE.is_dir() or not RUNTIME.is_dir():
-        raise RuntimeError("StateDirectory and RuntimeDirectory required")
+        raise RuntimeError("StateDirectory and socket directory required")
+    sockets = systemd_sockets()
     app = PairingRPC(EnrollmentStore(STATE / "pairing.sqlite3"))
     gateway_uid = pwd.getpwnam("ai-lab-gateway").pw_uid
     approver_uid = pwd.getpwnam("ai-lab-approver").pw_uid
-    with start_unix_server(MCP_SOCKET, "ai-lab-gateway",
-                           app, "mcp", gateway_uid) as mcp_sock, \
-         start_unix_server(APPROVER_SOCKET, "ai-lab-approver",
-                           app, "approver", approver_uid) as approver_sock:
+    with inherited_server(sockets["mcp"], unix_handler(
+        app, role="mcp", expected_uid=gateway_uid
+    )) as mcp_sock, inherited_server(sockets["approver"], unix_handler(
+        app, role="approver", expected_uid=approver_uid
+    )) as approver_sock:
+        threading.Thread(target=mcp_sock.serve_forever, daemon=True).start()
+        threading.Thread(target=approver_sock.serve_forever, daemon=True).start()
         run_claim_server(app.store, port=8002)
 
 
