@@ -370,16 +370,16 @@ specification](v2-device-onboarding-access.md).
 **Date:** 2026-10-14. **Status:** accepted. Implementation in progress.
 
 **Decision:** Every managed Linux device, without device-type exceptions,
-supports a **boolean connection preference**: \`persistent=true\` or
-\`persistent=false\`. It is independent of the Restricted / Partial /
+supports a **boolean connection preference**: `persistent=true` or
+`persistent=false`. It is independent of the Restricted / Partial /
 Unrestricted authorization profile and independent of whether SSH is
 *connected at this instant*. The UI represents the preference as a single
 on/off switch labeled "Manter conexão persistente".
 
-- \`persistent=true\`: enable the dedicated systemd reverse-SSH tunnel unit
+- `persistent=true`: enable the dedicated systemd reverse-SSH tunnel unit
   so it starts on subsequent Linux boots and automatically retries failed
   sessions while active.
-- \`persistent=false\`: disable automatic startup. The device can be
+- `persistent=false`: disable automatic startup. The device can be
   manually connected or disconnected; toggling this flag does **not**
   immediately disconnect an existing working session.
 
@@ -389,19 +389,19 @@ may **suggest** true for unattended servers and false for laptops, but must
 allow either choice. Hardware category never overrides an explicit flag.
 
 **MCP controls:** the Gateway should expose:
-1. \`device_connection_status(device_id)\`: authorized read, reports live
+1. `device_connection_status(device_id)`: authorized read, reports live
    connectivity and actual target-side systemd persistence when reachable.
-2. \`set_device_persistent(device_id, persistent: bool)\`: independently
+2. `set_device_persistent(device_id, persistent: bool)`: independently
    authorized, audited write operation that changes only the per-device
-   startup flag. It requires OAuth \`gateway:control\`, an explicit
-   \`connection_manage\` device grant and a narrowly configured, root-owned
-   device-side helper. \`exec\` alone must NOT grant the right to toggle it.
+   startup flag. It requires OAuth `gateway:control`, an explicit
+   `connection_manage` device grant and a narrowly configured, root-owned
+   device-side helper. `exec` alone must NOT grant the right to toggle it.
 
 An unconfigured old device is not silently assumed to be On-demand: its
 specific systemd unit must be registered before the MCP setter operates.
 The target systemd enablement is the source of truth, not a cosmetic
-registry value. Offline responses report \`persistent=null\` (unknown live
-state), not \`false\`.
+registry value. Offline responses report `persistent=null` (unknown live
+state), not `false`.
 
 **Connected vs Persistent are independent:**
 - Connected + persistent=false is valid (WSL on-demand active).
@@ -419,12 +419,12 @@ the WSL Linux distribution starts; it cannot wake the laptop or guarantee
 Windows launches WSL at boot.
 
 **Source (not yet in production):**
-\`src/ai_lab_gateway/connection_control.py\`,
-\`scripts/ai-lab-device-connectionctl\`,
-\`scripts/device-connection.sh\`,
-and \`tests/test_connection_control.py\`.
+`src/ai_lab_gateway/connection_control.py`,
+`scripts/ai-lab-device-connectionctl`,
+`scripts/device-connection.sh`,
+and `tests/test_connection_control.py`.
 The next production deployment must install the target helper through
 a trusted local sudo setup (not permanent general MCP sudo), configure
-the \`connection_unit\` in the protected device registry and authorize
-\`connection_manage\` per subject/device. A successful unit test is
+the `connection_unit` in the protected device registry and authorize
+`connection_manage` per subject/device. A successful unit test is
 not evidence of deployed operation.
