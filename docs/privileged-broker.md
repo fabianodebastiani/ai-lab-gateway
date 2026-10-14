@@ -132,3 +132,16 @@ Following the new regression test, the entire suite passed **41 tests**.
 The refreshed ChatGPT MCP app exposed all **10** tools, including the four privileged-broker operations. A real OAuth-authenticated call to `privilege_request(operation="gateway-service-status", ttl_seconds=1800)` succeeded and returned `pending`; subsequent `privilege_status` confirmed it remained pending, and `privilege_execute` before approval was rejected with `not_approved`. This confirms the end-to-end request and denial path in the **actual ChatGPT session**, distinct from earlier local socket tests.
 
 Pending human approval through the independent root CLI is required for the positive approval/execution path. Request identifiers are ephemeral and not recorded in this document.
+
+## End-to-end positive human approval verified — 2026-10-14
+
+A live user-approved flow successfully completed through the **actual ChatGPT MCP connection**, not just a local daemon test:
+
+1. OAuth-authenticated ChatGPT called `privilege_request(operation="gateway-service-status", ttl_seconds=1800)`; broker returned `pending`.
+2. Before approval, `privilege_execute` returned `not_approved`.
+3. Human operator independently approved the pending request over the Oracle `ubuntu` terminal using `sudo /usr/local/libexec/ai-lab-privilege-brokerd --approve <request_id>`. The root CLI returned `approved` and an expiration timestamp.
+4. ChatGPT called `privilege_status` and saw `approved`, then called `privilege_execute`: success, exit code 0, `stdout="active\\n"`, state `consumed`.
+5. ChatGPT attempted to execute the same request again: broker returned `not_approved` / `consumed`.
+6. Final status check confirmed `consumed`.
+
+**Conclusion:** authenticated ChatGPT request → separate real human root approval → single privileged fixed-operation execution → replay denial is verified end-to-end. Only predefined operations are supported. No arbitrary sudo command is exposed via the broker. Request IDs are not stored in project docs.
