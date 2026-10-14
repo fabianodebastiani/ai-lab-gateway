@@ -61,6 +61,19 @@ See [docs/architecture.md](docs/architecture.md),
 [ChatGPT + Auth0 OAuth runbook](docs/chatgpt-auth0-oauth-runbook.md).
 
 
+## Último checkpoint de trabalho (14/10/2026)
+
+**Primeiro ponto de retomada:** [Checkpoint de 14/10 — pareamento WSL
+v2, estado real e pendências](docs/checkpoint-2026-10-14-pairing-v2.md).
+
+A versão v2 de cadastro já possui código, testes e pacote preparado
+para a Oracle, porém **não está instalada**. O operador encerrou a sessão
+e explicitamente **não executou** a cópia para `/root`, `--check` ou
+`--apply` da última orientação administrativa. A Oracle mantém os
+serviços v1 ativos; o WSL foi registrado **offline na última checagem**
+e pode voltar pelo túnel sob demanda. **Não apagar as credenciais
+antigas** antes da validação integral da substituição.
+
 ## Implementation map
 
 Current live/repository state is tracked in
