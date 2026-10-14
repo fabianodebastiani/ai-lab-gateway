@@ -1,0 +1,36 @@
+[Unit]
+Description=AI Lab Gateway independent human approval web UI
+After=network.target ai-lab-privilege-broker.service
+Requires=ai-lab-privilege-broker.service
+
+[Service]
+Type=simple
+User=ai-lab-approver
+Group=ai-lab-approver
+ExecStart=/usr/bin/python3 /usr/local/libexec/ai-lab-approval-web --serve
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadOnlyPaths=/etc/ai-lab-approval
+ReadWritePaths=/var/lib/ai-lab-approval
+InaccessiblePaths=/var/lib/ai-lab-gateway /var/lib/ai-lab-privilege-broker /etc/ai-lab-gateway
+
+[Install]
+WantedBy=multi-user.target
