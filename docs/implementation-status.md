@@ -230,3 +230,26 @@ For reconstruction and troubleshooting, read:
   It is not part of the final broker design.
 
 Full details in [privileged-broker.md](privileged-broker.md).
+
+## Separate web approval service — 2026-10-14
+
+- `ai-lab-approver` Unix service account created with no interactive login and
+  no sudo.
+- Broker v0.5 now exposes two separate Unix sockets with per-UID
+  `SO_PEERCRED`: operational MCP requests vs independent human decisions.
+- Hardened approval web service deployed to `127.0.0.1:8001`; Caddy HTTPS
+  reverse proxy adds `/approvals*` without changing MCP OAuth routing.
+- Public `/approvals/health` returns 200; `/approvals` returns **503
+  until one-time human password/TOTP credential enrollment**. Credential
+  enrollment must happen outside the MCP chat; no secrets are in GitHub.
+- Web human approval: strong scrypt-hashed password for short session;
+  six-digit TOTP required separately per decision; one-use code consumption
+  persisted across reboot; CSRF, strict Origin/Host validation, login/OTP
+  throttling, secure cookies, output escaping, and restricted CSP.
+- Verified negative Linux socket access between operational and approval
+  service accounts. No interface to issue arbitrary shell commands.
+- **48 full-suite tests passed** on Oracle after broker and web UI upgrades;
+  tests use synthetic credentials only.
+- No real human browser approval has been performed yet. The remote web login
+  is not provisioned as of this status.
+- Details: [docs/approval-web.md](approval-web.md).
