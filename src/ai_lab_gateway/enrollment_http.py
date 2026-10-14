@@ -11,7 +11,6 @@ Security boundary:
 from __future__ import annotations
 
 from collections import deque
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import threading
@@ -41,7 +40,6 @@ def claim_handler(store: EnrollmentStore, *, expected_host: str = PUBLIC_HOST):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Access-Control-Allow-Origin", "null")
             self.end_headers()
             self.wfile.write(body)
 
