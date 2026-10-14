@@ -34,6 +34,7 @@ BASE = "/approvals"
 CREDENTIALS = Path("/etc/ai-lab-approval/credentials.json")
 LAST_STEP_FILE = Path("/var/lib/ai-lab-approval/last_totp_step")
 ADMIN_SOCKET = "/run/ai-lab-privilege-broker/approval.sock"
+PAIRING_SOCKET = "/run/ai-lab-pairing/approver.sock"
 SESSION_TTL = 900
 LOGIN_TTL = 600
 MAX_BODY = 8192
@@ -197,6 +198,47 @@ def admin_rpc(message):
     return reply
 
 
+def pairing_rpc(message):
+    """Separate Unix credential boundary for device identity review.
+
+    The web approval service has no permission to create pairing invitations,
+    activate a device or change SSH keys. These are independent service roles.
+    """
+    request = (json.dumps(message, separators=(",", ":")) + "\n").encode()
+    if len(request) > 8192:
+        raise ValueError("oversize pairing review")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(5)
+        sock.connect(PAIRING_SOCKET)
+        sock.sendall(request)
+        chunks = bytearray()
+        while not chunks.endswith(b"\n"):
+            block = sock.recv(4096)
+            if not block:
+                raise ConnectionError("pairing service disconnected")
+            chunks.extend(block)
+            if len(chunks) > 65536:
+                raise ValueError("oversize pairing service response")
+    reply = json.loads(chunks)
+    if not isinstance(reply, dict):
+        raise ValueError("invalid pairing response")
+    return reply
+
+
+def ssh_key_fingerprint(public_key):
+    """Display a checkable SSH fingerprint for the independent human."""
+    try:
+        parts = public_key.strip().split()
+        if len(parts) < 2 or parts[0] != "ssh-ed25519":
+            raise ValueError("unexpected SSH key")
+        blob = base64.b64decode(parts[1], validate=True)
+        if not 40 <= len(blob) <= 100:
+            raise ValueError("bad SSH key blob")
+        return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+    except (ValueError, TypeError, AttributeError):
+        return "Chave SSH inválida"
+
+
 def protected(text):
     return html.escape(str(text), quote=True)
 
@@ -313,11 +355,61 @@ class ApprovalHandler(BaseHTTPRequestHandler):
             raise ValueError("duplicate fields")
         return {k: v[0] for k, v in pairs.items()}
 
+    def _pairing_page(self, session):
+        try:
+            reply = pairing_rpc({"action": "list"})
+            if not reply.get("ok"):
+                raise RuntimeError("pairing reviewer unavailable")
+            requests = reply.get("requests", [])
+            if not isinstance(requests, list):
+                raise ValueError("unexpected review queue")
+        except (ConnectionError, OSError, ValueError, RuntimeError):
+            self._bad("O serviço de pareamento não está disponível.", 503)
+            return
+        blocks = [
+            "<section><h2>Novos dispositivos</h2>"
+            "<p>Confira a identidade e a impressão digital SSH no terminal "
+            "do próprio dispositivo antes de aprovar. A aprovação autoriza "
+            "o pareamento, mas não concede sudo ao MCP.</p>"
+            f"<p><a href='{BASE}'>Voltar às operações administrativas</a></p></section>"
+        ]
+        for item in requests:
+            rid = protected(item.get("request_id", ""))
+            tunnel_fp = protected(ssh_key_fingerprint(item.get("tunnel_public_key", "")))
+            host_fp = protected(ssh_key_fingerprint(item.get("ssh_host_public_key", "")))
+            name = protected(item.get("device_name", ""))
+            did = protected(item.get("device_id", ""))
+            operator = protected(item.get("operator_subject", ""))
+            persist = "Ligada" if item.get("persistent") is True else "Desligada"
+            deadline = protected(time.strftime(
+                "%Y-%m-%d %H:%M UTC", time.gmtime(item.get("approval_deadline", 0))
+            ))
+            blocks.append(
+                f"<section><h2>{name}</h2>"
+                f"<p class='meta'>ID: <code>{did}</code>"
+                f"<br>Solicitante: <code>{operator}</code>"
+                f"<br>Persistente: <strong>{persist}</strong>"
+                f"<br>Acesso inicial: <strong>Restrito (sem sudo)</strong>"
+                f"<br>Expira: {deadline}</p>"
+                f"<p>Fingerprint SSH do host:<br><code>{host_fp}</code>"
+                f"<br>Fingerprint da chave do túnel:<br><code>{tunnel_fp}</code></p>"
+                f"<form action='{BASE}/pairing-decision' method='post'>"
+                f"<input type='hidden' name='csrf' value='{protected(session['csrf'])}'>"
+                f"<input type='hidden' name='request_id' value='{rid}'>"
+                "<div class='actions'>"
+                "<button name='decision' value='approve' type='submit'>Parear este dispositivo</button>"
+                "<button name='decision' value='deny' class='deny' type='submit'>Rejeitar</button>"
+                "</div></form></section>"
+            )
+        if not requests:
+            blocks.append("<section><p>Nenhum dispositivo aguardando pareamento.</p></section>")
+        self._send(200, template("".join(blocks), title="Pareamento | AI Lab Gateway"))
+
     def do_GET(self):
         if self.path == BASE + "/health":
             self._send(200, b"ok", content_type="text/plain; charset=utf-8")
             return
-        if self.path not in (BASE, BASE + "/"):
+        if self.path not in (BASE, BASE + "/", BASE + "/pairing"):
             self._bad("Não encontrado", 404)
             return
         if self.headers.get("Host") != "gateway.debasti.com":
@@ -337,6 +429,9 @@ class ApprovalHandler(BaseHTTPRequestHandler):
             self._send(200, template(body),
                        cookie=f"ai_lab_login={login_cookie}; Path={BASE}; HttpOnly; Secure; SameSite=Strict; Max-Age={LOGIN_TTL}")
             return
+        if self.path == BASE + "/pairing":
+            self._pairing_page(session)
+            return
         try:
             result = admin_rpc({"action": "list"})
             if not result.get("ok"):
@@ -345,7 +440,11 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         except (ConnectionError, OSError, ValueError, RuntimeError):
             self._bad("Serviço de aprovação indisponível", 503)
             return
-        blocks = []
+        blocks = [
+            "<section><h2>Dispositivos</h2>"
+            f"<p><a href='{BASE}/pairing'>Ver solicitações de pareamento</a></p>"
+            "</section>"
+        ]
         for item in items:
             rid = protected(item.get("request_id", ""))
             operation = protected(item.get("operation", ""))
@@ -374,7 +473,7 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         self._send(200, template("".join(blocks)))
 
     def do_POST(self):
-        if self.path not in (BASE + "/login", BASE + "/decision", BASE + "/logout"):
+        if self.path not in (BASE + "/login", BASE + "/decision", BASE + "/logout", BASE + "/pairing-decision"):
             self._bad("Rota do formulário não reconhecida")
             return
         if not self._origin_ok():
@@ -430,6 +529,20 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         decision = data.get("decision", "")
         if not isinstance(rid, str) or len(rid) > 128 or decision not in ("approve", "deny"):
             self._bad("Decisão inválida")
+            return
+        if self.path == BASE + "/pairing-decision":
+            # Device pairing is lower-risk than executing privileged root
+            # commands and uses the independently authenticated browser
+            # session + CSRF. OTP remains required for the root broker.
+            try:
+                reply = pairing_rpc({"action": decision, "request_id": rid})
+            except (ConnectionError, OSError, ValueError):
+                self._bad("Serviço de pareamento indisponível.", 503)
+                return
+            if not reply.get("ok"):
+                self._bad("Pareamento não autorizado ou expirado.", 409)
+                return
+            self._send(303, redirect=BASE + "/pairing")
             return
         config = read_credentials()
         if not config:
