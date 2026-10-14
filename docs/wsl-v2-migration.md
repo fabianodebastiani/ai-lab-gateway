@@ -56,6 +56,40 @@ is not yet enrolled. We will preserve On-demand behavior during cutover.
 while connection mode is chosen separately (On-demand for WSL laptops;
 Persistent for always-on Linux/servers).
 
+## Per-device persistence flag and MCP controls — 2026-10-14
+
+The operator clarified that the connection preference must be **one Boolean
+flag for EVERY device** (not a hard-coded laptop-vs-server category):
+`persistent=true` or `persistent=false`. The flag is separate from the
+live connected state and from device sudo/authorization profiles.
+
+An initial MCP implementation was committed:
+`device_connection_status(device_id)` and
+`set_device_persistent(device_id, persistent: bool)`.
+The read tool requires an existing `status` device grant; the setter requires
+OAuth control scope and explicit `connection_manage` authorization for this
+device, plus a narrow root-owned helper installed locally. The target's
+systemd unit is the source of truth. The setter does **not** disconnect an
+active tunnel when flag becomes false.
+
+**Live WSL reference values:** connected=true, persistent=false, service
+`ai-lab-wsl-tunnel.service` active/disabled. Unit-level tests using synthetic
+state passed on WSL; the production MCP server and root-side helper have
+**not yet been installed or authorized**, so this is not a deployed feature.
+
+**Deployment operations still required** (after backup):
+1. Install the root-owned allowlisted target script
+   `scripts/ai-lab-device-connectionctl` on WSL, limiting sudo to exact
+   `set-persistent ai-lab-wsl-tunnel.service 0|1` variants.
+2. Add `connection_unit: "ai-lab-wsl-tunnel.service"` to the protected
+   `windows-wsl` device registry item; add `connection_manage` to the
+   explicitly authorized operator/device grant, not globally.
+3. Install the updated MCP package and reload the Oracle Gateway using
+   a supervised administrative rollout. Validate tool discovery, read-only
+   status, and flag toggles with no changes to SSH keys or old port.
+4. Confirm the flag can be changed back and forth while the connection stays
+   up; then proceed with new WSL pairing credentials and eventual cutover.
+
 ## Product decision
 
 **Pairing always produces a Restricted device.** Only later may the operator
