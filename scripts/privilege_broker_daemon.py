@@ -34,6 +34,7 @@ OPERATIONS = {
 MAX_TTL = 86400
 MAX_REQUEST_BYTES = 16384
 PENDING_TTL = 3600
+MAX_PENDING_PER_SUBJECT = 20
 
 def audit(action, outcome, request_id=None, subject=None):
     event = {"time": int(time.time()), "action": action, "outcome": outcome,
@@ -89,9 +90,18 @@ def dispatch(message):
         if action == "request":
             operation = message.get("operation")
             ttl = message.get("ttl_seconds")
-            if operation not in OPERATIONS or type(ttl) is not int or not 1 <= ttl <= MAX_TTL:
+            if not isinstance(operation, str) or operation not in OPERATIONS or type(ttl) is not int or not 1 <= ttl <= MAX_TTL:
                 audit("request", "invalid_parameters", subject=subject)
                 return {"ok": False, "error": "invalid_parameters"}
+            pending_count = sum(
+                1 for item in entries.values()
+                if item.get("subject") == subject
+                and item.get("status") == "pending"
+                and now < item.get("approval_deadline", 0)
+            )
+            if pending_count >= MAX_PENDING_PER_SUBJECT:
+                audit("request", "pending_quota_reached", subject=subject)
+                return {"ok": False, "error": "pending_quota_reached"}
             request_id = secrets.token_urlsafe(24)
             entries[request_id] = {
                 "subject": subject, "operation": operation, "ttl_seconds": ttl,
