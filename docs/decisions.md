@@ -365,55 +365,66 @@ acceptance tests.
 **Design and implementation checklist:** [v2 enrollment and access
 specification](v2-device-onboarding-access.md).
 
-## ADR-028 — Independent device connection lifecycle: on-demand or persistent
+## ADR-028 — Connection persistence is a per-device boolean, configurable by MCP
 
-**Date:** 2026-10-14. **Status:** accepted for v2; generic local control
-helper implemented and non-destructively tested on the connected WSL.
+**Date:** 2026-10-14. **Status:** accepted. Implementation in progress.
 
-**Decision:** a newly enrolled Linux device has two independently selected
-connection modes, unrelated to the three *authorization* profiles:
+**Decision:** Every managed Linux device, without device-type exceptions,
+supports a **boolean connection preference**: \`persistent=true\` or
+\`persistent=false\`. It is independent of the Restricted / Partial /
+Unrestricted authorization profile and independent of whether SSH is
+*connected at this instant*. The UI represents the preference as a single
+on/off switch labeled "Manter conexão persistente".
 
-- **On-demand / Sob demanda** (default for Windows laptops / WSL):
-  automatically connecting at Windows boot is not assumed. Operator can
-  Connect and Disconnect via local shortcut, CLI or future tray application.
-  The tunnel unit stays `systemctl disabled`, but `systemctl start` may
-  connect on demand. When connected, systemd can restart a failed SSH session.
-  A successful Disconnect intentionally stops the unit without deleting
-  device registration or rotating credentials.
-- **Persistent / Persistente** (default for Raspberry Pi and always-on
-  Linux/OCI): `systemctl enable --now` starts tunnel now and on the Linux
-  system's subsequent boots. Restart on failure and outbound SSH keepalives
-  recover after network interruptions.
+- \`persistent=true\`: enable the dedicated systemd reverse-SSH tunnel unit
+  so it starts on subsequent Linux boots and automatically retries failed
+  sessions while active.
+- \`persistent=false\`: disable automatic startup. The device can be
+  manually connected or disconnected; toggling this flag does **not**
+  immediately disconnect an existing working session.
 
-**Reasoning:** laptops should disconnect without losing credentials, while
-servers and embedded devices should reconnect unattended. Connection state
-must never implicitly change administrative authorization.
+Both options apply equally to **all** Linux targets, whether a laptop,
+Raspberry Pi, VM, embedded Linux board, or Oracle instance. The installer
+may **suggest** true for unattended servers and false for laptops, but must
+allow either choice. Hardware category never overrides an explicit flag.
 
-**Critical distinction:** disconnecting a reverse SSH tunnel makes the
-target unreachable from the remote MCP. Therefore, **the remote MCP cannot
-re-connect a disconnected target by itself**. Reconnection has to be initiated
-locally on the target (Windows shortcut, WSL CLI, tray application) or via
-a separate trusted out-of-band control path. A ChatGPT "Connect" button
-cannot promise remote reconnection while no agent/tunnel is present.
+**MCP controls:** the Gateway should expose:
+1. \`device_connection_status(device_id)\`: authorized read, reports live
+   connectivity and actual target-side systemd persistence when reachable.
+2. \`set_device_persistent(device_id, persistent: bool)\`: independently
+   authorized, audited write operation that changes only the per-device
+   startup flag. It requires OAuth \`gateway:control\`, an explicit
+   \`connection_manage\` device grant and a narrowly configured, root-owned
+   device-side helper. \`exec\` alone must NOT grant the right to toggle it.
 
-**WSL limit:** even with systemd enabled, Windows does not necessarily launch
-a WSL distribution when the PC starts. Persistent in WSL means auto-start
-*when that Linux environment starts*, not remote wake of the laptop.
+An unconfigured old device is not silently assumed to be On-demand: its
+specific systemd unit must be registered before the MCP setter operates.
+The target systemd enablement is the source of truth, not a cosmetic
+registry value. Offline responses report \`persistent=null\` (unknown live
+state), not \`false\`.
 
-**Security:** changing connection mode does not modify SSH private keys,
-pairing records, per-device trust, operator grants, or sudo policy. UI
-must treat connected/disconnected, startup preference, and authorization
-profile as three separate status concepts.
+**Connected vs Persistent are independent:**
+- Connected + persistent=false is valid (WSL on-demand active).
+- Disconnected + persistent=true is valid (persistent device powered off).
+- An MCP command can set persistence only **while the reverse tunnel is
+  reachable**. After manually disconnecting the **only** tunnel, the same
+  MCP cannot reconnect it. Reconnection needs a local start, a persistent
+  service boot, or an independently engineered out-of-band mechanism.
+- Stopping the tunnel via remote MCP needs a carefully designed delayed
+  stop/acknowledgement; a local Connect/Disconnect action is preferred
+  until that is tested.
 
-**Implementation start:** `scripts/device-connection.sh` offers
-`connect`, `disconnect`, `persistent`, `on-demand`, and `status`
-on an explicitly selected `ai-lab-*-tunnel.service`. Privileged changes
-require the target's local administrator; remote MCP execution has no
-sudo rights by default. Initially tested read-only `status` on the live
-WSL: mode=on-demand, active=active, systemd-enabled=disabled. An arbitrary
-unit name like `ssh.service` was rejected (exit 2).
+**WSL semantics:** Even with persistent=true, systemd only starts when
+the WSL Linux distribution starts; it cannot wake the laptop or guarantee
+Windows launches WSL at boot.
 
-**Validation needed before completion:** execute Connect/Disconnect via
-operator-controlled local method, test boot persistence on a disposable
-Linux target, include the preference in pairing API/installer, and confirm
-behavior under network failure and reboot.
+**Source (not yet in production):**
+\`src/ai_lab_gateway/connection_control.py\`,
+\`scripts/ai-lab-device-connectionctl\`,
+\`scripts/device-connection.sh\`,
+and \`tests/test_connection_control.py\`.
+The next production deployment must install the target helper through
+a trusted local sudo setup (not permanent general MCP sudo), configure
+the \`connection_unit\` in the protected device registry and authorize
+\`connection_manage\` per subject/device. A successful unit test is
+not evidence of deployed operation.
