@@ -74,3 +74,17 @@ Prepared runbooks:
 - [Device bootstrap](docs/bootstrap-device.md)
 - [Security model](docs/security-model.md)
 - [Deployment](docs/deployment.md)
+
+## Supervised privilege broker (experimental)
+
+The Oracle gateway now has a separate, hardened root broker behind a Unix
+socket accessible only to the non-root Gateway service account. OAuth-authorized
+users can request a predefined privileged operation; an administrator must
+independently approve it, and execution is limited to a single use with an
+expiry and audit record. This does **not** grant arbitrary sudo from MCP.
+
+The experimental service is active and unit/integration tested, but the
+independent approval UI is not implemented yet. The existing ChatGPT app may
+need its tool metadata refreshed to discover the four new MCP operations.
+
+See [Supervised privilege broker architecture and runbook](docs/privileged-broker.md).
