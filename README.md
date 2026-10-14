@@ -83,23 +83,36 @@ users can request a predefined privileged operation; an administrator must
 independently approve it, and execution is limited to a single use with an
 expiry and audit record. This does **not** grant arbitrary sudo from MCP.
 
-The experimental service is active and unit/integration tested, but the
-independent approval UI is not implemented yet. The existing ChatGPT app may
-need its tool metadata refreshed to discover the four new MCP operations.
+The independent approval UI is deployed, and a real browser approval with
+TOTP was tested end-to-end, including one-time execution and replay rejection.
+The current broker covers only a small predefined Oracle operation allowlist;
+it is not yet the v2 per-device, temporary sudo manager.
 
 See [Supervised privilege broker architecture and runbook](docs/privileged-broker.md).
 
-### Human approval website (provisioning pending)
+### Human approval website (active)
 
 A separate password-and-TOTP human approval interface has been deployed at
 [https://gateway.debasti.com/approvals](https://gateway.debasti.com/approvals).
-It is **not enabled for sign-in until a human performs private credential
-enrollment in the Oracle terminal**. The UI runs as its own non-root service
-and can only approve or deny pending, whitelisted broker requests.
+Credential enrollment and live end-to-end approval have been completed.
+The UI runs as its own non-root service and can only approve or deny
+pending, whitelisted broker requests.
 
 See [docs/approval-web.md](docs/approval-web.md) for the setup, security
 model, troubleshooting, and acceptance procedure.
 
 ## Next milestone: v2 device pairing and access profiles
 
-Implementation is underway for simple Linux pairing and exactly three access radio modes: Restricted, Partial (duration dropdown only), and Unrestricted. An expired partial grant returns to Restricted. The initial domain model and tests are in `src/ai_lab_gateway/access_profiles.py` and `tests/test_access_profiles.py`; this is not yet deployed privilege enforcement. See [unified v2 requirements](docs/v2-device-onboarding-access.md) for security boundaries and milestones.
+**New devices always start Restricted** after explicit identity verification and
+secure pairing. Enrollment does **not** ask the operator to choose sudo
+privileges. After pairing, the operator can request access changes separately,
+with exactly three choices: Restricted, Unrestricted, or Partial. Only Partial
+shows a duration dropdown (15 minutes to 24 hours). Its expiration returns
+to Restricted.
+
+The initial profile domain model and regression tests exist in
+`src/ai_lab_gateway/access_profiles.py` and
+`tests/test_access_profiles.py`, but the enrollment API and device-side sudo
+enforcement are **not yet deployed**. See [ADR-027](docs/decisions.md) and the
+[unified v2 product specification](docs/v2-device-onboarding-access.md)
+for the approved design and rollout prerequisites.
