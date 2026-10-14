@@ -10,7 +10,7 @@ from .auth import AuthConfig
 
 
 CONTROL_SCOPE = "gateway:control"
-CONTROL_TOOLS = frozenset({"exec", "write_file", "privilege_request", "privilege_status", "privilege_execute", "privilege_revoke", "set_device_persistent"})
+CONTROL_TOOLS = frozenset({"exec", "write_file", "privilege_request", "privilege_status", "privilege_execute", "privilege_revoke", "set_device_persistent", "pairing_invite", "pairing_requests", "pairing_status"})
 
 
 def _requested_tool_names(body: bytes) -> set[str]:
