@@ -10,7 +10,7 @@ import socket
 BROKER_SOCKET = "/run/ai-lab-privilege-broker/broker.sock"
 
 def broker_call(action: str, subject: str, **fields) -> dict:
-    request = {"action": action, "subject": subject, **fields}
+    request = {**fields, "action": action, "subject": subject}
     data = (json.dumps(request, separators=(",", ":")) + "\n").encode("utf8")
     if len(data) > 16384:
         raise ValueError("broker request too large")
