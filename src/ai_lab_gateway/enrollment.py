@@ -21,6 +21,7 @@ import time
 DEVICE_ID = re.compile(r"^[a-z][a-z0-9-]{2,47}$")
 INVITE_TTL = 600
 MAX_KEY_LENGTH = 1024
+PENDING_APPROVAL_TTL = 3600
 
 
 def _validate_public_key(value: str) -> str:
@@ -77,8 +78,22 @@ class EnrollmentStore:
                 tunnel_public_key TEXT,
                 ssh_host_public_key TEXT,
                 persistent INTEGER,
-                claimed_at INTEGER
+                claimed_at INTEGER,
+                request_id TEXT UNIQUE,
+                reviewed_by TEXT,
+                reviewed_at INTEGER,
+                activated_at INTEGER
             )""")
+            # Schema migration for databases created by the invitation prototype.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(invites)")}
+            for column, sql_type in (
+                ("request_id", "TEXT"), ("reviewed_by", "TEXT"),
+                ("reviewed_at", "INTEGER"), ("activated_at", "INTEGER")
+            ):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE invites ADD COLUMN {column} {sql_type}")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+                         "unique_pairing_request_id ON invites(request_id)")
             conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS one_live_request_per_device
                 ON invites(device_id) WHERE state = 'pending'""")
 
@@ -119,8 +134,14 @@ class EnrollmentStore:
             raise ValueError("tunnel and host SSH identity must be distinct")
         now_value = int(time.time()) if now is None else now
         digest = _digest(token)
+        request_id = secrets.token_urlsafe(18)
         with closing(self._db()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "UPDATE invites SET state='expired' WHERE state='pending' "
+                "AND claimed_at + ? <= ?",
+                (PENDING_APPROVAL_TTL, now_value),
+            )
             row = db.execute(
                 "SELECT state,expires_at FROM invites WHERE token_hash=?", (digest,)
             ).fetchone()
@@ -129,17 +150,18 @@ class EnrollmentStore:
             try:
                 changed = db.execute(
                     """UPDATE invites SET state='pending',device_id=?,device_name=?,
-                       tunnel_public_key=?,ssh_host_public_key=?,persistent=?,claimed_at=?
-                       WHERE token_hash=? AND state='invited'""",
+                       tunnel_public_key=?,ssh_host_public_key=?,persistent=?,
+                       claimed_at=?,request_id=? WHERE token_hash=? AND state='invited'""",
                     (device_id, device_name.strip(), tunnel_key, host_key,
-                     int(persistent), now_value, digest),
+                     int(persistent), now_value, request_id, digest),
                 )
             except sqlite3.IntegrityError as exc:
                 raise ValueError("device already has a pending pairing") from exc
             if changed.rowcount != 1:
                 raise PermissionError("invitation was already claimed")
         return {
-            "status": "pending", "device_id": device_id, "device_name": device_name.strip(),
+            "status": "pending", "request_id": request_id,
+            "device_id": device_id, "device_name": device_name.strip(),
             "access_mode": "restricted", "persistent": persistent,
             "tunnel_key_fingerprint": "SHA256:" + base64.b64encode(
                 hashlib.sha256(base64.b64decode(tunnel_key.split()[1])).digest()
@@ -147,4 +169,115 @@ class EnrollmentStore:
             "host_key_fingerprint": "SHA256:" + base64.b64encode(
                 hashlib.sha256(base64.b64decode(host_key.split()[1])).digest()
             ).decode().rstrip("="),
+        }
+
+
+    def pending_requests(self, *, now: int | None = None) -> list[dict]:
+        """Review queue for the separate human-facing authorization service.
+
+        Do not expose this method via an unauthenticated public endpoint.
+        """
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "UPDATE invites SET state='expired' WHERE state='pending' "
+                "AND claimed_at + ? <= ?",
+                (PENDING_APPROVAL_TTL, moment),
+            )
+            rows = db.execute(
+                """SELECT request_id,operator_subject,device_id,device_name,
+                          tunnel_public_key,ssh_host_public_key,persistent,
+                          claimed_at FROM invites WHERE state='pending'
+                   ORDER BY claimed_at ASC""",
+            ).fetchall()
+        return [
+            {
+                "request_id": rid,
+                "operator_subject": sub,
+                "device_id": dev,
+                "device_name": name,
+                "tunnel_public_key": tunnel,
+                "ssh_host_public_key": host,
+                "persistent": bool(persistent),
+                "access_mode": "restricted",
+                "approval_deadline": claimed_at + PENDING_APPROVAL_TTL,
+            }
+            for rid, sub, dev, name, tunnel, host, persistent, claimed_at in rows
+        ]
+
+    def review(
+        self, request_id: str, *, human_actor: str, approve: bool,
+        now: int | None = None,
+    ) -> dict:
+        """Transition pending -> approved/denied ONLY after independent human auth.
+
+        Callers MUST enforce the login+CSRF/OTP or equivalent independent
+        human boundary. Never expose this method through an AI-callable MCP
+        tool or allow the operational service account to reach its RPC.
+        """
+        if not isinstance(request_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{24,64}", request_id
+        ):
+            raise ValueError("invalid request id")
+        if not isinstance(human_actor, str) or not human_actor.strip():
+            raise ValueError("independent human approver is required")
+        if type(approve) is not bool:
+            raise ValueError("decision must be boolean")
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                """UPDATE invites SET state=?,reviewed_by=?,reviewed_at=?
+                   WHERE request_id=? AND state='pending'
+                   AND claimed_at + ? > ?""",
+                ("approved" if approve else "denied", human_actor.strip(),
+                 moment, request_id, PENDING_APPROVAL_TTL, moment),
+            )
+            if changed.rowcount != 1:
+                raise PermissionError("request unavailable, stale or reviewed")
+            dev = db.execute(
+                "SELECT device_id,persistent FROM invites WHERE request_id=?",
+                (request_id,),
+            ).fetchone()
+        return {
+            "status": "approved" if approve else "denied", "request_id": request_id,
+            "device_id": dev[0], "persistent": bool(dev[1]),
+            "access_mode": "restricted",
+        }
+
+    def activation_record(
+        self, request_id: str, *, host_public_key: str,
+        tunnel_public_key: str, now: int | None = None,
+    ) -> dict:
+        """For trusted provisioner AFTER successful registry/SSH verification.
+
+        Merely calling this does not install any keys or start a tunnel.
+        The provisioner must verify host identity and complete transactional
+        registry activation before marking the record.
+        """
+        host = _validate_public_key(host_public_key)
+        tunnel = _validate_public_key(tunnel_public_key)
+        if not isinstance(request_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{24,64}", request_id
+        ):
+            raise ValueError("invalid request id")
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                """UPDATE invites SET state='active',activated_at=?
+                   WHERE request_id=? AND state='approved'
+                   AND ssh_host_public_key=? AND tunnel_public_key=?""",
+                (moment, request_id, host, tunnel),
+            )
+            if changed.rowcount != 1:
+                raise PermissionError("unapproved request or SSH identity mismatch")
+            row = db.execute(
+                "SELECT device_id,persistent FROM invites WHERE request_id=?",
+                (request_id,),
+            ).fetchone()
+        return {
+            "status": "active", "request_id": request_id, "device_id": row[0],
+            "persistent": bool(row[1]), "access_mode": "restricted",
         }
