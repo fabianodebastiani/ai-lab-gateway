@@ -92,13 +92,13 @@ def verify_stage():
         raise RuntimeError("reference services are not healthy")
 
 
-def atomic_write(path: Path, data: bytes, mode: int):
+def atomic_write(path: Path, data: bytes, mode: int, *, uid: int = 0, gid: int = 0):
     if path.is_symlink():
         raise PermissionError("refusing to replace symlink: " + str(path))
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix=".ai-lab-v2-", dir=path.parent)
     try:
-        os.fchown(fd, 0, 0)
+        os.fchown(fd, uid, gid)
         os.fchmod(fd, mode)
         with os.fdopen(fd, "wb") as out:
             out.write(data)
@@ -175,19 +175,30 @@ def main():
                   str(POLICY): POLICY, str(CADDY): CADDY,
                   str(DROPOUT): DROPOUT}
     mode_backup = {}
-    for path in (Path("/opt/ai-lab-gateway"), Path("/opt/ai-lab-gateway/src"), PACKAGE):
-        mode_backup[str(path)] = stat.S_IMODE(path.stat().st_mode)
+    roots = [Path("/opt/ai-lab-gateway"),
+             Path("/opt/ai-lab-gateway/src"), PACKAGE]
+    for path in [*roots, *PACKAGE.rglob("*")]:
+        if path.is_symlink():
+            raise PermissionError("unexpected symlink in package source tree: " + str(path))
+        st = path.lstat()
+        if stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode):
+            mode_backup[str(path)] = {
+                "mode": stat.S_IMODE(st.st_mode), "uid": st.st_uid, "gid": st.st_gid
+            }
     for key, path in target_map.items():
         if path.is_symlink():
             raise PermissionError("existing file is a symlink: " + key)
         original = backup / ("file-" + hashlib.sha256(key.encode()).hexdigest())
         if path.exists():
+            st = path.stat()
             shutil.copy2(path, original)
-            originals[key] = str(original)
+            originals[key] = {"path": str(original),
+                              "uid": st.st_uid, "gid": st.st_gid,
+                              "mode": stat.S_IMODE(st.st_mode)}
         else:
             originals[key] = None
     (backup / "manifest.json").write_text(
-        json.dumps({"files": originals, "dirs": mode_backup}, indent=2)
+        json.dumps({"files": originals, "source_permissions": mode_backup}, indent=2)
     )
     os.chmod(backup / "manifest.json", 0o600)
     print("BACKUP=" + str(backup), flush=True)
@@ -200,11 +211,18 @@ def main():
             if name == "pairing_service.py":
                 mode = 0o755
             atomic_write(target, (STAGE / name).read_bytes(), mode)
-        # Block modifying production importable code from the runtime account.
-        for p in mode_backup:
-            os.chmod(p, stat.S_IMODE(os.stat(p).st_mode) & ~0o022)
+        # Immutable source boundary: a compromised gateway UID must not
+        # rewrite code later executed by the independent approver/pairing UID.
+        for p in sorted(mode_backup, key=lambda x: len(x), reverse=True):
+            path = Path(p)
+            st = path.stat()
+            os.chown(path, 0, 0)
+            os.chmod(path, stat.S_IMODE(st.st_mode) & ~0o022)
 
-        atomic_write(POLICY, policy_with_enrollment_grant(POLICY.read_bytes()), 0o640)
+        policy_stat = POLICY.stat()
+        atomic_write(POLICY, policy_with_enrollment_grant(POLICY.read_bytes()),
+                     stat.S_IMODE(policy_stat.st_mode),
+                     uid=policy_stat.st_uid, gid=policy_stat.st_gid)
         atomic_write(DROPOUT,
                      b"[Service]\nEnvironment=PYTHONPATH=/opt/ai-lab-gateway/src\n",
                      0o644)
@@ -244,16 +262,18 @@ def main():
             for key, original in originals.items():
                 path = Path(key)
                 if original:
-                    backup_file = Path(original)
-                    content = backup_file.read_bytes()
-                    target_mode = stat.S_IMODE(backup_file.stat().st_mode)
-                    atomic_write(path, content, target_mode)
-                    os.chown(path, backup_file.stat().st_uid,
-                             backup_file.stat().st_gid)
+                    backup_file = Path(original["path"])
+                    atomic_write(path, backup_file.read_bytes(),
+                                 original["mode"], uid=original["uid"],
+                                 gid=original["gid"])
                 else:
                     path.unlink(missing_ok=True)
-            for key, mode in mode_backup.items():
-                os.chmod(key, mode)
+            for key, original in sorted(
+                mode_backup.items(), key=lambda item: len(item[0]), reverse=True
+            ):
+                if Path(key).exists():
+                    os.chown(key, original["uid"], original["gid"])
+                    os.chmod(key, original["mode"])
             run("/usr/bin/systemctl", "daemon-reload", check=False)
             run("/usr/bin/systemctl", "restart", "ai-lab-gateway", check=False)
             run("/usr/bin/systemctl", "restart", "ai-lab-approval-web", check=False)
