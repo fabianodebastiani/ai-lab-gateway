@@ -292,19 +292,16 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         self._send(status, template(f"<section><p class='error'>{protected(message)}</p><a href='{BASE}'>Voltar</a></section>"))
 
     def _origin_ok(self):
-        if self.headers.get("Host") != "gateway.debasti.com":
-            return False
-        if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/x-www-form-urlencoded":
-            return False
-        origin = self.headers.get("Origin")
-        if origin is not None and origin != SITE:
-            return False
-        fetch_site = self.headers.get("Sec-Fetch-Site")
-        if fetch_site not in (None, "same-origin", "none"):
-            return False
-        # Login and decisions require independent CSRF checks below, so
-        # missing Origin/Fetch metadata need not exclude legitimate browsers.
-        return True
+        """Validate transport basics; CSRF tokens protect browser form actions.
+
+        Origin/Fetch Metadata may be altered or omitted by browser extensions
+        or intermediaries. Each login form has an unguessable 10-minute CSRF
+        token bound to a SameSite=Strict cookie; privileged decisions require
+        an authenticated-session CSRF token and a separate TOTP code.
+        """
+        return (self.headers.get("Host") == "gateway.debasti.com"
+                and self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                == "application/x-www-form-urlencoded")
 
     def _form(self):
         length = self.headers.get("Content-Length", "")
