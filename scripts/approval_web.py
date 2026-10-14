@@ -35,8 +35,10 @@ CREDENTIALS = Path("/etc/ai-lab-approval/credentials.json")
 LAST_STEP_FILE = Path("/var/lib/ai-lab-approval/last_totp_step")
 ADMIN_SOCKET = "/run/ai-lab-privilege-broker/approval.sock"
 SESSION_TTL = 900
+LOGIN_TTL = 600
 MAX_BODY = 8192
 SESSIONS = {}
+LOGIN_FORMS = {}
 FAILURES = collections.deque(maxlen=1024)
 MU = threading.RLock()
 CSS = """
@@ -238,6 +240,33 @@ def session_lookup(raw_cookie):
         return entry
 
 
+
+def issue_login_csrf():
+    """Bind a random login CSRF token to a separate Strict same-site cookie."""
+    key, token = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+    with MU:
+        if len(LOGIN_FORMS) >= 1000:
+            LOGIN_FORMS.clear()
+        LOGIN_FORMS[key] = {"csrf": token, "expiry": time.monotonic() + LOGIN_TTL}
+    return key, token
+
+
+def verify_login_csrf(cookie_header, supplied):
+    if not isinstance(supplied, str) or not supplied:
+        return False
+    try:
+        jar = SimpleCookie()
+        jar.load(cookie_header or "")
+        morsel = jar.get("ai_lab_login")
+        key = morsel.value if morsel is not None else ""
+    except Exception:
+        return False
+    with MU:
+        entry = LOGIN_FORMS.get(key)
+        return bool(entry and entry["expiry"] >= time.monotonic()
+                    and hmac.compare_digest(supplied, entry["csrf"]))
+
+
 class ApprovalHandler(BaseHTTPRequestHandler):
     server_version = "AI-Lab-Approvals"
     sys_version = ""
@@ -263,9 +292,19 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         self._send(status, template(f"<section><p class='error'>{protected(message)}</p><a href='{BASE}'>Voltar</a></section>"))
 
     def _origin_ok(self):
-        return (self.headers.get("Host") == "gateway.debasti.com"
-                and self.headers.get("Origin") == SITE
-                and self.headers.get("Content-Type", "").split(";")[0] == "application/x-www-form-urlencoded")
+        if self.headers.get("Host") != "gateway.debasti.com":
+            return False
+        if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/x-www-form-urlencoded":
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and origin != SITE:
+            return False
+        fetch_site = self.headers.get("Sec-Fetch-Site")
+        if fetch_site not in (None, "same-origin", "none"):
+            return False
+        # Login and decisions require independent CSRF checks below, so
+        # missing Origin/Fetch metadata need not exclude legitimate browsers.
+        return True
 
     def _form(self):
         length = self.headers.get("Content-Length", "")
@@ -292,11 +331,14 @@ class ApprovalHandler(BaseHTTPRequestHandler):
             return
         session = session_lookup(self.headers.get("Cookie"))
         if not session:
+            login_cookie, csrf = issue_login_csrf()
             body = (f"<section><h2>Acesso administrativo</h2>"
                     f"<form action='{BASE}/login' method='post'>"
+                    f"<input type='hidden' name='csrf' value='{protected(csrf)}'>"
                     "<label>Senha do aprovador<input type='password' name='password' required autocomplete='current-password'></label>"
                     "<button type='submit'>Entrar</button></form></section>")
-            self._send(200, template(body))
+            self._send(200, template(body),
+                       cookie=f"ai_lab_login={login_cookie}; Path={BASE}; HttpOnly; Secure; SameSite=Strict; Max-Age={LOGIN_TTL}")
             return
         try:
             result = admin_rpc({"action": "list"})
@@ -345,6 +387,9 @@ class ApprovalHandler(BaseHTTPRequestHandler):
             return
         client = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0][:80]
         if self.path == BASE + "/login":
+            if not verify_login_csrf(self.headers.get("Cookie"), data.get("csrf")):
+                self._bad("Formulário expirado. Volte e atualize a página.")
+                return
             if failure_locked(client):
                 self._bad("Muitas tentativas. Aguarde alguns minutos.", 429)
                 return
