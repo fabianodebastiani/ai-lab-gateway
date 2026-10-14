@@ -281,3 +281,60 @@ class EnrollmentStore:
             "status": "active", "request_id": request_id, "device_id": row[0],
             "persistent": bool(row[1]), "access_mode": "restricted",
         }
+
+
+    def inspect(
+        self, request_id: str, *, operator_subject: str | None = None
+    ) -> dict:
+        """Read enrollment state without exposing pairing invitation tokens."""
+        if not isinstance(request_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{24,64}", request_id
+        ):
+            raise ValueError("invalid pairing request id")
+        if operator_subject is not None and (
+            not isinstance(operator_subject, str) or not operator_subject.strip()
+        ):
+            raise ValueError("invalid operator")
+        with closing(self._db()) as db:
+            row = db.execute(
+                """SELECT operator_subject,device_id,device_name,state,
+                   persistent,tunnel_public_key,ssh_host_public_key,
+                   claimed_at,reviewed_at,activated_at
+                   FROM invites WHERE request_id=?""",
+                (request_id,),
+            ).fetchone()
+        if row is None or (operator_subject is not None and row[0] != operator_subject):
+            raise PermissionError("enrollment request not found")
+        return {
+            "request_id": request_id,
+            "operator_subject": row[0],
+            "device_id": row[1],
+            "device_name": row[2],
+            "status": row[3],
+            "persistent": bool(row[4]),
+            "access_mode": "restricted",
+            "tunnel_public_key": row[5],
+            "ssh_host_public_key": row[6],
+            "claimed_at": row[7],
+            "reviewed_at": row[8],
+            "activated_at": row[9],
+        }
+
+    def my_requests(self, operator_subject: str, *, limit: int = 15) -> list[dict]:
+        """Retrieve only request IDs/states for the verified OAuth subject."""
+        if not isinstance(operator_subject, str) or not operator_subject.strip():
+            raise ValueError("invalid operator")
+        if type(limit) is not int or not 1 <= limit <= 30:
+            raise ValueError("invalid request limit")
+        with closing(self._db()) as db:
+            rows = db.execute(
+                """SELECT request_id,device_id,device_name,state,persistent
+                   FROM invites WHERE operator_subject=? AND request_id IS NOT NULL
+                   ORDER BY claimed_at DESC LIMIT ?""",
+                (operator_subject, limit),
+            ).fetchall()
+        return [{
+            "request_id": rid, "device_id": dev, "device_name": name,
+            "status": state, "persistent": bool(persist),
+            "access_mode": "restricted",
+        } for rid, dev, name, state, persist in rows]
