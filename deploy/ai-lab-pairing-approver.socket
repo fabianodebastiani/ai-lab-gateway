@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Lab Gateway v2 independent human pairing reviews socket
+
+[Socket]
+ListenStream=/run/ai-lab-pairing/approver.sock
+SocketUser=ai-lab-pairing
+SocketGroup=ai-lab-approver
+SocketMode=0660
+DirectoryMode=0711
+FileDescriptorName=approver
+Service=ai-lab-pairing.service
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target
