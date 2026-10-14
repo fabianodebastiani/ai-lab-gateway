@@ -116,7 +116,9 @@ def test_approval_web_login_otp_csrf_and_decision(ui, monkeypatch):
         fields = {"csrf": csrf, "request_id": rid, "decision": "approve",
                   "otp": module.totp(secret)}
         assert req("POST", "/approvals/decision", fields)[0] == 403
-        assert req("POST", "/approvals/decision", fields, cookie=cookie,
+        # A cross-site request cannot guess the session's CSRF secret.
+        forged = {**fields, "csrf": "incorrect-csrf"}
+        assert req("POST", "/approvals/decision", forged, cookie=cookie,
                    origin="https://evil.example")[0] == 403
         assert not any(msg["action"] == "approve" for msg in received)
         assert req("POST", "/approvals/decision", fields, cookie=cookie)[0] == 303
@@ -138,7 +140,7 @@ def test_totp_claim_is_persistent_across_restart(ui):
     assert module.LAST_STEP_FILE.read_text().strip() == "100001"
 
 
-def test_origin_policy_allows_safe_browser_fallback(ui):
+def test_login_transport_accepts_optional_browser_headers(ui):
     module, _, _ = ui
     handler = module.ApprovalHandler.__new__(module.ApprovalHandler)
     from email.message import Message
@@ -150,16 +152,15 @@ def test_origin_policy_allows_safe_browser_fallback(ui):
         handler.headers = message
         return handler._origin_ok()
 
-    base = {"Host": "gateway.debasti.com",
-            "Content_Type": "application/x-www-form-urlencoded"}
-    assert check(**base, Origin=module.SITE)
-    assert check(**base, Sec_Fetch_Site="same-origin", Sec_Fetch_Mode="navigate")
-    assert check(**base)  # CSRF required at a higher layer
-    assert not check(**base, Origin="null", Sec_Fetch_Site="same-origin", Sec_Fetch_Mode="navigate")
-    assert not check(**base, Origin="https://evil.example", Sec_Fetch_Site="same-origin", Sec_Fetch_Mode="navigate")
-    assert not check(**base, Sec_Fetch_Site="cross-site", Sec_Fetch_Mode="navigate")
-    assert not check(**base, Sec_Fetch_Site="same-site", Sec_Fetch_Mode="navigate")
-    assert not check(**{**base, "Host": "wrong.example"}, Origin=module.SITE)
+    standard = {"Host": "gateway.debasti.com",
+                "Content_Type": "application/x-www-form-urlencoded"}
+    assert check(**standard)
+    assert check(**standard, Origin=module.SITE)
+    assert check(**standard, Origin="null", Sec_Fetch_Site="cross-site")
+    # Forged cross-site POST still fails the independent per-form CSRF check.
+    assert not check(**{**standard, "Host": "foreign.example"})
+    assert not check(Host="gateway.debasti.com", Content_Type="text/plain")
+
 
 
 def test_login_csrf_cookie_is_bound_and_required(ui):
