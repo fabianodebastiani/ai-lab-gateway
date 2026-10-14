@@ -364,3 +364,56 @@ acceptance tests.
 
 **Design and implementation checklist:** [v2 enrollment and access
 specification](v2-device-onboarding-access.md).
+
+## ADR-028 — Independent device connection lifecycle: on-demand or persistent
+
+**Date:** 2026-10-14. **Status:** accepted for v2; generic local control
+helper implemented and non-destructively tested on the connected WSL.
+
+**Decision:** a newly enrolled Linux device has two independently selected
+connection modes, unrelated to the three *authorization* profiles:
+
+- **On-demand / Sob demanda** (default for Windows laptops / WSL):
+  automatically connecting at Windows boot is not assumed. Operator can
+  Connect and Disconnect via local shortcut, CLI or future tray application.
+  The tunnel unit stays `systemctl disabled`, but `systemctl start` may
+  connect on demand. When connected, systemd can restart a failed SSH session.
+  A successful Disconnect intentionally stops the unit without deleting
+  device registration or rotating credentials.
+- **Persistent / Persistente** (default for Raspberry Pi and always-on
+  Linux/OCI): `systemctl enable --now` starts tunnel now and on the Linux
+  system's subsequent boots. Restart on failure and outbound SSH keepalives
+  recover after network interruptions.
+
+**Reasoning:** laptops should disconnect without losing credentials, while
+servers and embedded devices should reconnect unattended. Connection state
+must never implicitly change administrative authorization.
+
+**Critical distinction:** disconnecting a reverse SSH tunnel makes the
+target unreachable from the remote MCP. Therefore, **the remote MCP cannot
+re-connect a disconnected target by itself**. Reconnection has to be initiated
+locally on the target (Windows shortcut, WSL CLI, tray application) or via
+a separate trusted out-of-band control path. A ChatGPT "Connect" button
+cannot promise remote reconnection while no agent/tunnel is present.
+
+**WSL limit:** even with systemd enabled, Windows does not necessarily launch
+a WSL distribution when the PC starts. Persistent in WSL means auto-start
+*when that Linux environment starts*, not remote wake of the laptop.
+
+**Security:** changing connection mode does not modify SSH private keys,
+pairing records, per-device trust, operator grants, or sudo policy. UI
+must treat connected/disconnected, startup preference, and authorization
+profile as three separate status concepts.
+
+**Implementation start:** `scripts/device-connection.sh` offers
+`connect`, `disconnect`, `persistent`, `on-demand`, and `status`
+on an explicitly selected `ai-lab-*-tunnel.service`. Privileged changes
+require the target's local administrator; remote MCP execution has no
+sudo rights by default. Initially tested read-only `status` on the live
+WSL: mode=on-demand, active=active, systemd-enabled=disabled. An arbitrary
+unit name like `ssh.service` was rejected (exit 2).
+
+**Validation needed before completion:** execute Connect/Disconnect via
+operator-controlled local method, test boot persistence on a disposable
+Linux target, include the preference in pairing API/installer, and confirm
+behavior under network failure and reboot.
