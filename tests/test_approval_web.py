@@ -28,6 +28,7 @@ def ui(monkeypatch, tmp_path):
     location.write_text(json.dumps(config))
     monkeypatch.setattr(module, "CREDENTIALS", location)
     module.SESSIONS.clear()
+    module.LOGIN_FORMS.clear()
     module.FAILURES.clear()
     monkeypatch.setattr(module, "LAST_STEP_FILE", tmp_path / "last_totp_step")
     return module, password, secret
@@ -81,8 +82,10 @@ def test_approval_web_login_otp_csrf_and_decision(ui, monkeypatch):
         if form is not None:
             body = urllib.parse.urlencode(form)
             headers["Content-Type"] = "application/x-www-form-urlencoded"
-            if origin:
+            if origin is True:
                 headers["Origin"] = module.SITE
+            elif isinstance(origin, str):
+                headers["Origin"] = origin
         conn.request(method, target, body=body, headers=headers)
         response = conn.getresponse()
         result = response.status, dict(response.getheaders()), response.read().decode("utf8")
@@ -90,9 +93,18 @@ def test_approval_web_login_otp_csrf_and_decision(ui, monkeypatch):
         return result
 
     try:
-        assert req("GET", "/approvals")[0] == 200
-        assert req("POST", "/approvals/login", {"password": "wrong"})[0] == 403
-        status, headers, _ = req("POST", "/approvals/login", {"password": password})
+        status, login_headers, login_body = req("GET", "/approvals")
+        assert status == 200
+        login_cookie = login_headers["Set-Cookie"].split(";", 1)[0]
+        match = re.search("name='csrf' value='([^']+)'", login_body)
+        assert match
+        login_csrf = match.group(1)
+        assert req("POST", "/approvals/login", {"password": password})[0] == 403
+        assert req("POST", "/approvals/login", {"password": "wrong", "csrf": login_csrf},
+                   cookie=login_cookie)[0] == 403
+        form = {"password": password, "csrf": login_csrf}
+        status, headers, _ = req("POST", "/approvals/login", form,
+                                 cookie=login_cookie, origin=False)
         assert status == 303
         cookie = headers["Set-Cookie"].split(";", 1)[0]
         assert "Secure" in headers["Set-Cookie"] and "HttpOnly" in headers["Set-Cookie"]
@@ -104,7 +116,8 @@ def test_approval_web_login_otp_csrf_and_decision(ui, monkeypatch):
         fields = {"csrf": csrf, "request_id": rid, "decision": "approve",
                   "otp": module.totp(secret)}
         assert req("POST", "/approvals/decision", fields)[0] == 403
-        assert req("POST", "/approvals/decision", fields, cookie=cookie, origin=False)[0] == 403
+        assert req("POST", "/approvals/decision", fields, cookie=cookie,
+                   origin="https://evil.example")[0] == 403
         assert not any(msg["action"] == "approve" for msg in received)
         assert req("POST", "/approvals/decision", fields, cookie=cookie)[0] == 303
         assert sum(msg["action"] == "approve" for msg in received) == 1
@@ -123,3 +136,36 @@ def test_totp_claim_is_persistent_across_restart(ui):
     assert module.LAST_STEP_FILE.read_text().strip() == "100000"
     assert module.claim_totp_step(100001)
     assert module.LAST_STEP_FILE.read_text().strip() == "100001"
+
+
+def test_origin_policy_allows_safe_browser_fallback(ui):
+    module, _, _ = ui
+    handler = module.ApprovalHandler.__new__(module.ApprovalHandler)
+    from email.message import Message
+
+    def check(**headers):
+        message = Message()
+        for key, value in headers.items():
+            message[key.replace("_", "-")] = value
+        handler.headers = message
+        return handler._origin_ok()
+
+    base = {"Host": "gateway.debasti.com",
+            "Content_Type": "application/x-www-form-urlencoded"}
+    assert check(**base, Origin=module.SITE)
+    assert check(**base, Sec_Fetch_Site="same-origin", Sec_Fetch_Mode="navigate")
+    assert check(**base)  # CSRF required at a higher layer
+    assert not check(**base, Origin="null", Sec_Fetch_Site="same-origin", Sec_Fetch_Mode="navigate")
+    assert not check(**base, Origin="https://evil.example", Sec_Fetch_Site="same-origin", Sec_Fetch_Mode="navigate")
+    assert not check(**base, Sec_Fetch_Site="cross-site", Sec_Fetch_Mode="navigate")
+    assert not check(**base, Sec_Fetch_Site="same-site", Sec_Fetch_Mode="navigate")
+    assert not check(**{**base, "Host": "wrong.example"}, Origin=module.SITE)
+
+
+def test_login_csrf_cookie_is_bound_and_required(ui):
+    module, _, _ = ui
+    key, token = module.issue_login_csrf()
+    assert module.verify_login_csrf("ai_lab_login=" + key, token)
+    assert not module.verify_login_csrf("ai_lab_login=" + key, "wrong")
+    assert not module.verify_login_csrf("", token)
+    assert not module.verify_login_csrf("ai_lab_login=wrong", token)
