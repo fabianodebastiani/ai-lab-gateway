@@ -44,6 +44,7 @@ def test_password_is_salted_and_verified(ui):
     module, password, _ = ui
     config = module.read_credentials()
     assert module.verify_password(password, config)
+    assert module.verify_password("  " + password + "  ", config)
     assert not module.verify_password("incorrect", config)
     assert password not in module.CREDENTIALS.read_text()
 
