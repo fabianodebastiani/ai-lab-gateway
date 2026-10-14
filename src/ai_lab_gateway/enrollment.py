@@ -22,6 +22,7 @@ DEVICE_ID = re.compile(r"^[a-z][a-z0-9-]{2,47}$")
 INVITE_TTL = 600
 MAX_KEY_LENGTH = 1024
 PENDING_APPROVAL_TTL = 3600
+MAX_OPEN_INVITES_PER_OPERATOR = 10
 
 
 def _validate_public_key(value: str) -> str:
@@ -109,6 +110,15 @@ class EnrollmentStore:
         token = secrets.token_urlsafe(32)
         digest = _digest(token)
         with closing(self._db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            outstanding = db.execute(
+                "SELECT count(*) FROM invites WHERE operator_subject=? AND "
+                "((state='invited' AND expires_at>?) OR "
+                "(state='pending' AND claimed_at+?>?))",
+                (operator_subject, moment, PENDING_APPROVAL_TTL, moment)
+            ).fetchone()[0]
+            if outstanding >= MAX_OPEN_INVITES_PER_OPERATOR:
+                raise PermissionError("too many outstanding pairing requests")
             db.execute("INSERT INTO invites (token_hash,operator_subject,created_at,"
                        "expires_at,state) VALUES (?,?,?,?,?)",
                        (digest, operator_subject, moment, moment+INVITE_TTL, "invited"))
