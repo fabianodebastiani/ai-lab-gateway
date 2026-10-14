@@ -105,3 +105,72 @@ def test_write_file_requires_control_scope(monkeypatch, tmp_path):
         pass
     else:
         raise AssertionError("control scope should be required")
+
+
+def test_connection_status_requires_read_scope_and_device_status_grant(tmp_path, monkeypatch):
+    control = make_control(tmp_path)
+    from ai_lab_gateway.connection_control import DeviceConnectionState
+    monkeypatch.setattr(
+        "ai_lab_gateway.control.read_connection",
+        lambda dev: DeviceConnectionState(dev.id, True, False, "ai-lab-pi-tunnel.service", "ok"),
+    )
+    status = control.device_connection_status(identity("alice", "gateway:read"), "pi")
+    assert status["connected"] is True
+    assert status["persistent"] is False
+    try:
+        control.device_connection_status(identity("unknown", "gateway:read"), "pi")
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("ungranted subject must not read connection status")
+
+
+def test_connection_flag_requires_independent_device_manage_grant(tmp_path, monkeypatch):
+    control = make_control(tmp_path)
+    from ai_lab_gateway.connection_control import DeviceConnectionState
+    observed = []
+    def fake_update(dev, flag):
+        observed.append(flag)
+        return DeviceConnectionState(dev.id, True, flag, "ai-lab-pi-tunnel.service", "ok")
+    monkeypatch.setattr("ai_lab_gateway.control.update_persistent_flag", fake_update)
+    # Existing exec permission MUST NOT authorize connection policy changes.
+    try:
+        control.set_device_persistent(identity("alice", "gateway:control"), "pi", True)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("connection_manage grant is required")
+    assert not observed
+    # Explicit per-device action enables the narrow control.
+    control.policy._grants["alice"]["pi"].add("connection_manage")
+    result = control.set_device_persistent(identity("alice", "gateway:control"), "pi", True)
+    assert result["persistent"] is True
+    assert observed == [True]
+    assert '"action":"connection_manage"' in (tmp_path / "audit.jsonl").read_text()
+
+
+def test_connection_flag_requires_control_scope_and_strict_boolean(tmp_path, monkeypatch):
+    control = make_control(tmp_path)
+    control.policy._grants["alice"]["pi"].add("connection_manage")
+    calls = []
+    monkeypatch.setattr(
+        "ai_lab_gateway.control.update_persistent_flag",
+        lambda dev, flag: calls.append(flag),
+    )
+    for subject, scopes, flag in [
+        ("alice", ["gateway:read"], True),
+        ("bob", ["gateway:control"], True),
+    ]:
+        try:
+            control.set_device_persistent(identity(subject, *scopes), "pi", flag)
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("scope/device permissions were not enforced")
+    try:
+        control.set_device_persistent(identity("alice", "gateway:control"), "pi", "true")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("boolean flag validation is mandatory")
+    assert not calls
