@@ -145,3 +145,24 @@ A live user-approved flow successfully completed through the **actual ChatGPT MC
 6. Final status check confirmed `consumed`.
 
 **Conclusion:** authenticated ChatGPT request → separate real human root approval → single privileged fixed-operation execution → replay denial is verified end-to-end. Only predefined operations are supported. No arbitrary sudo command is exposed via the broker. Request IDs are not stored in project docs.
+
+## Independent HTTPS human approval UI (v0.5, 2026-10-14)
+
+A separate `ai-lab-approval-web` systemd service and `ai-lab-approver`
+(non-root/non-sudo) Unix account have been deployed. Root broker now has a
+separate admin Unix socket restricted to that account; the operational MCP
+service cannot open it. HTTPS approval page:
+`https://gateway.debasti.com/approvals`.
+
+The UI uses a local password (scrypt hash) to enter a 15-minute browser
+session, followed by a fresh TOTP code on every Approve/Deny action. CSRF and
+origin checks, secure cookies, per-process rate limiting, and TOTP anti-replay
+persisted atomically across service restarts are implemented. Only a root CLI
+run by a human can enroll the initial credentials, preventing ChatGPT/MCP
+from provisioning and knowing the factors.
+
+**Current live state:** UI available but HTTP 503 until the human credential
+enrollment; MCP unaffected. Full suite **48 passed**; private credential and
+actual human website approval are pending. See
+[docs/approval-web.md](approval-web.md) for authoritative enrollment, runbook,
+security details and recovery.
