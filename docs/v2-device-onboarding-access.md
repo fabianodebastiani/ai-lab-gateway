@@ -224,6 +224,29 @@ B–E are validated on real devices.
 - **Safety:** snapshots/backups, logging and rollback of registry/keys;
   negative tests proving that Restricted cannot run arbitrary sudo.
 
+## Pairing engine foundation — non-production pilot 2026-10-14
+
+The initial `src/ai_lab_gateway/enrollment.py` module uses a local
+transactional SQLite store to issue random, 10-minute invitation tokens
+(only SHA-256 token digests are persisted), and atomically claim each
+invitation once. A claim validates an explicit boolean `persistent` flag,
+the new device identifier and distinct Ed25519 public keys for tunnel and
+SSH host identity; the result is always **pending + Restricted**. It also
+computes key fingerprints to display for independent human verification.
+
+The module is intentionally **not exposed on public HTTPS yet**. The
+following MUST exist before activation: authenticated/rate-limited invite
+issuance, secure HTTPS claim endpoint, human confirmation of device
+fingerprint, approval or rejection isolated from AI self-approval, one-time
+management key provisioning, SSH host-key pinning, registry commit and
+rollback, and final SSH functional/negative verification.
+
+**Testing:** 11 focused enrollment tests passed on the live WSL in a
+non-production scratch directory without changing keys or system services.
+Separately 11 connection-control and 5 restricted-root-helper tests passed;
+the staged six MCP/registry Python source files also compile without errors.
+These are focused tests, NOT a substitute for the full Oracle test suite.
+
 ## Operational status observed
 
 At 2026-10-14 02:23 UTC, \`ai-maintenance\` no longer had
