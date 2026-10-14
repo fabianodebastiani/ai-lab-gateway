@@ -1,57 +1,143 @@
 #!/usr/bin/env python3
-"""Local root-only broker v0.2; not exposed over MCP."""
-import argparse,json,os,secrets,subprocess,sys,tempfile,time
+"""AI Lab privileged broker v0.3: local root-only prototype.
+
+This is NOT a remotely approvable interface. Root bootstrap can issue grants.
+All operations are fixed argv read-only commands, never shell strings.
+"""
+import argparse
+import fcntl
+import json
+import os
+import secrets
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
-S=Path('/var/lib/ai-lab-privilege-broker')
-DB=S/'grants.json'
-AUD=S/'audit.jsonl'
-OPS={'gateway-service-status':['/usr/bin/systemctl','is-active','ai-lab-gateway'],'gateway-service-enabled':['/usr/bin/systemctl','is-enabled','ai-lab-gateway']}
-def audit(action,result,gid=None):
- with AUD.open('a') as f:f.write(json.dumps({'time':int(time.time()),'action':action,'result':result,'grant_id':gid})+'\n')
+
+STATE = Path("/var/lib/ai-lab-privilege-broker")
+DB = STATE / "grants.json"
+AUDIT = STATE / "audit.jsonl"
+LOCK = STATE / "lock"
+OPS = {
+    "gateway-service-status": ["/usr/bin/systemctl", "is-active", "ai-lab-gateway"],
+    "gateway-service-enabled": ["/usr/bin/systemctl", "is-enabled", "ai-lab-gateway"],
+}
+MAX_TTL = 86400
+
+def audit(action, result, grant_id=None, subject=None):
+    entry = {"time": int(time.time()), "action": action, "result": result,
+             "grant_id": grant_id, "subject": subject}
+    with AUDIT.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
 def load():
- if not DB.exists():return {}
- d=json.loads(DB.read_text())
- if not isinstance(d,dict):raise ValueError('invalid db')
- return d
-def save(d):
- fd,p=tempfile.mkstemp(dir=S,prefix='.grant-')
- try:
-  os.fchmod(fd,0o600)
-  with os.fdopen(fd,'w') as f:
-   json.dump(d,f);f.flush();os.fsync(f.fileno())
-  os.replace(p,DB)
- finally:
-  if os.path.exists(p):os.unlink(p)
+    if not DB.exists():
+        return {}
+    data = json.loads(DB.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("invalid grant database")
+    return data
+
+def save(data):
+    fd, tmp = tempfile.mkstemp(prefix=".grant-", dir=STATE)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, separators=(",", ":"))
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, DB)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+@contextmanager
+def locked():
+    STATE.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(STATE, 0o700)
+    with LOCK.open("a+") as lock:
+        os.chmod(LOCK, 0o600)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        yield
+
+def run(args):
+    with locked():
+        AUDIT.touch(exist_ok=True)
+        os.chmod(AUDIT, 0o600)
+        data = load()
+        if args.command == "status":
+            audit("status", "ok")
+            print(json.dumps({"version": "0.3-local", "grants": len(data),
+                "operations": sorted(OPS), "remote_approval_enabled": False,
+                "arbitrary_shell_enabled": False, "locking": "flock"}))
+            return 0
+        if args.command == "issue":
+            if not 1 <= args.ttl <= MAX_TTL:
+                audit("issue", "denied")
+                return 77
+            grant_id = secrets.token_urlsafe(24)
+            data[grant_id] = {"operation": args.operation,
+                "expires_at": int(time.time()) + args.ttl,
+                "subject": args.subject, "state": "active",
+                "issuer": "local-root-bootstrap"}
+            save(data)
+            audit("issue", "ok", grant_id, args.subject)
+            print(json.dumps({"grant_id": grant_id, "operation": args.operation,
+                "subject": args.subject, "expires_at": data[grant_id]["expires_at"]}))
+            return 0
+        grant = data.get(args.grant_id)
+        if not grant:
+            audit(args.command, "denied")
+            return 77
+        if grant.get("subject") != args.subject:
+            audit(args.command, "subject_mismatch", args.grant_id, args.subject)
+            return 77
+        if args.command == "revoke":
+            grant["state"] = "revoked"
+            save(data)
+            audit("revoke", "ok", args.grant_id, args.subject)
+            print("revoked")
+            return 0
+        if (grant.get("state") != "active"
+            or int(time.time()) >= grant.get("expires_at", 0)
+            or grant.get("operation") not in OPS):
+            audit("execute", "denied", args.grant_id, args.subject)
+            return 77
+        grant["state"] = "consumed"
+        save(data)
+        # Lock stays held until operation completes: no concurrent replay.
+        result = subprocess.run(OPS[grant["operation"]], shell=False,
+                                capture_output=True, text=True, timeout=15)
+        audit("execute", "ok" if result.returncode == 0 else "failed",
+              args.grant_id, args.subject)
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        return result.returncode
+
 def main():
- if os.geteuid()!=0:raise PermissionError('root required')
- S.mkdir(mode=0o700,exist_ok=True);os.chmod(S,0o700)
- AUD.touch(exist_ok=True);os.chmod(AUD,0o600)
- p=argparse.ArgumentParser();sub=p.add_subparsers(dest='cmd',required=True)
- sub.add_parser('status')
- q=sub.add_parser('issue');q.add_argument('operation',choices=sorted(OPS));q.add_argument('--ttl',type=int,default=1800)
- for n in ('execute','revoke'):
-  q=sub.add_parser(n);q.add_argument('grant_id')
- a=p.parse_args();d=load()
- if a.cmd=='status':
-  audit('status','ok')
-  print(json.dumps({'version':'0.2-local','grant_count':len(d),'operations':sorted(OPS),'remote_approval_enabled':False,'arbitrary_shell_enabled':False}));return 0
- if a.cmd=='issue':
-  if not 1<=a.ttl<=86400:audit('issue','denied');return 77
-  gid=secrets.token_urlsafe(24)
-  d[gid]={'operation':a.operation,'expires_at':int(time.time())+a.ttl,'state':'active','issued_by':'local-root-bootstrap'}
-  save(d);audit('issue','ok',gid)
-  print(json.dumps({'grant_id':gid,'operation':a.operation,'expires_at':d[gid]['expires_at']}));return 0
- g=d.get(a.grant_id)
- if not g:audit(a.cmd,'denied');return 77
- if a.cmd=='revoke':
-  g['state']='revoked';save(d);audit('revoke','ok',a.grant_id);print('revoked');return 0
- if g.get('state')!='active' or int(time.time())>=g.get('expires_at',0) or g.get('operation') not in OPS:
-  audit('execute','denied',a.grant_id);return 77
- g['state']='consumed';save(d)
- r=subprocess.run(OPS[g['operation']],shell=False,capture_output=True,text=True,timeout=15)
- audit('execute','ok' if r.returncode==0 else 'failed',a.grant_id)
- sys.stdout.write(r.stdout);sys.stderr.write(r.stderr);return r.returncode
-if __name__=='__main__':
- try:sys.exit(main())
- except (PermissionError,ValueError,subprocess.TimeoutExpired) as e:
-  print('DENIED:',type(e).__name__,file=sys.stderr);sys.exit(77)
+    if os.geteuid() != 0:
+        raise PermissionError("root required")
+    parser = argparse.ArgumentParser()
+    subs = parser.add_subparsers(dest="command", required=True)
+    subs.add_parser("status")
+    issue = subs.add_parser("issue")
+    issue.add_argument("operation", choices=sorted(OPS))
+    issue.add_argument("--ttl", type=int, default=1800)
+    issue.add_argument("--subject", required=True)
+    for command in ("execute", "revoke"):
+        p = subs.add_parser(command)
+        p.add_argument("grant_id")
+        p.add_argument("--subject", required=True)
+    return run(parser.parse_args())
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (PermissionError, ValueError, subprocess.TimeoutExpired) as exc:
+        print("DENIED:", type(exc).__name__, file=sys.stderr)
+        sys.exit(77)
