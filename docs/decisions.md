@@ -317,3 +317,50 @@ a small surface that can be authorized, tested and audited clearly.
 
 **Status:** accepted and validated through the real ChatGPT -> OAuth -> MCP ->
 policy -> reverse SSH -> target path.
+
+## ADR-027 — Enroll restricted; elevate Linux device access on demand
+
+**Date:** 2026-10-14. **Status:** accepted product decision, implementation pending.
+
+**Decision:** registering and pairing a new Linux device is separate from
+authorizing elevated execution privileges. A new device is **always enrolled
+as Restricted** (non-root management user, no general-purpose sudo). Enrollment
+asks only for confirmation of the new device's identity and secure pairing;
+it does NOT display the access-mode selector or grant admin privileges.
+
+Once paired, the operator can request administrative access to an individual
+device, in the normal work context, using **exactly three radio controls**:
+
+1. **Restricted** — normal access; no administrative elevation.
+2. **Unrestricted** — deliberately grant broad administrative access to that
+   device until revoked, with a clear high-risk warning.
+3. **Partial** — grant administrative access during a limited interval.
+   **Only Partial** exposes a duration dropdown, initially 15, 30, 60,
+   120, 240, 480, or 1440 minutes. After expiration, the device enforcer
+   refuses new privileged commands and the effective mode returns to
+   Restricted. The dropdown defaults to 30 minutes when opened.
+
+Grant approval must be traceable to the authenticated human and may use a
+supported host-native confirmation or a separate approval channel.
+Neither a model-generated UI button nor conversational text is sufficient
+evidence of authorization. Google Authenticator is NOT required for normal
+device enrollment or for each command during an existing privileged window;
+it may remain as optional step-up for higher-risk decisions.
+
+**Reasoning:** device identity/trust can last indefinitely, whereas sudo
+capabilities should be changed only as needed and often be short-lived.
+Separating these events reduces enrollment friction, prevents accidental
+default root privileges, and avoids binding sudo lifetime to SSH lifecycle.
+
+**Enforcement:** the Restricted default and all subsequent grants must be
+implemented by the gateway and device-side security boundary, not just a
+visible UI selection. Partial TTL must be validated per privileged command
+and expire without a browser, ChatGPT session or Internet access.
+Full root access may make persistent changes; timed expiry cannot undo them.
+
+**Migration:** preserve existing Raspberry Pi, WSL and Oracle configurations
+until a fresh Linux test target passes the onboarding and permission
+acceptance tests.
+
+**Design and implementation checklist:** [v2 enrollment and access
+specification](v2-device-onboarding-access.md).
