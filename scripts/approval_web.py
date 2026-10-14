@@ -128,6 +128,7 @@ def verify_password(password, config):
         return False
     try:
         expected = bytes.fromhex(config["password_hash"])
+        password = password.strip()
         return hmac.compare_digest(password_hash(password, bytes.fromhex(config["salt"])), expected)
     except (KeyError, ValueError):
         return False
@@ -164,7 +165,7 @@ def provision():
         raise
     print("\n=== AI LAB APPROVALS: CREDENCIAIS INICIAIS ===")
     print("Painel:", SITE + BASE)
-    print("Senha: ", password)
+    print("Senha:", password)
     print("Chave TOTP (Google Authenticator / Microsoft Authenticator): ", secret)
     print("Tipo: baseado em tempo (TOTP), SHA1, 6 dígitos, período 30 segundos")
     print("Guarde a senha e adicione a chave ao aplicativo autenticador.")
