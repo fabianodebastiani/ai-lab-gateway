@@ -136,3 +136,18 @@ offline target cannot be reconnected via its already-down reverse tunnel.
 Sources: [ADR-028](docs/decisions.md),
 [`connection_control.py`](src/ai_lab_gateway/connection_control.py),
 [`ai-lab-device-connectionctl`](scripts/ai-lab-device-connectionctl).
+
+### Restricted-first pairing prototype (v2 in progress)
+
+A first domain-level implementation is in
+[`src/ai_lab_gateway/enrollment.py`](src/ai_lab_gateway/enrollment.py),
+with focused tests in [`tests/test_enrollment.py`](tests/test_enrollment.py).
+It generates high-entropy one-use 10-minute pairing invitations, stores
+only token digests, validates distinct Ed25519 SSH public keys and the
+universal `persistent` boolean, and always produces a **pending,
+Restricted** enrollment.
+
+It is **not** a public pairing endpoint yet and does not rotate existing
+device keys. It must be integrated with authenticated HTTPS enrollment,
+independent operator approval, atomic gateway/target provisioning, and
+end-to-end acceptance on the WSL before v2 is declared usable.
