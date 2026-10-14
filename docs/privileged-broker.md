@@ -107,3 +107,11 @@ Não publicar dumps de `authorization.json`, conteúdos de `gateway.env`, logs r
 - Validação adicional rejeita `operation` de tipo incorreto; cliente IPC fixa `subject` e `action` como campos imutáveis mesmo se receber argumentos duplicados de código interno.
 - Suíte completa na Oracle: **39 testes aprovados** depois destas melhorias. Pacote Python reinstalado, Gateway reiniciado e `gateway_status` confirmado via MCP.
 - O fluxo de aprovação continua independente e restrito ao administrador root via CLI. Sem interface de aprovação humana autenticada, não habilitar operações administrativas mutáveis.
+
+## OAuth step-up e catálogo MCP (2026-10-14)
+
+- `scope_stepup.CONTROL_TOOLS` atualizado para incluir `privilege_request`, `privilege_status`, `privilege_execute`, `privilege_revoke` além de `exec` e `write_file`.
+- Novos testes em `tests/test_scope_stepup.py` validam challenge HTTP 403 com `WWW-Authenticate` e `gateway:control` para cada operação supervisionada quando o token só possui `gateway:read`.
+- Suíte completa: **40 passed** na Oracle, após instalar o novo pacote e reiniciar o serviço.
+- Foi verificado através do SDK MCP, com variáveis OAuth fictícias apenas para inspeção (sem usar credenciais reais), que o processo instalado registra **10 ferramentas**: `gateway_status`, `list_devices`, `device_status`, `exec`, `read_file`, `write_file`, `privilege_request`, `privilege_status`, `privilege_execute`, `privilege_revoke`.
+- O catálogo desta conversa ChatGPT ainda contém apenas as seis ferramentas antigas: isso não equivale a falha do processo MCP; verificar atualização da conexão/metadata antes de um teste ponta a ponta via ChatGPT.
