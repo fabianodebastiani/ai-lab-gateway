@@ -138,3 +138,18 @@ sudo systemctl reload caddy
 
 Do not store passwords, TOTP seed, recovery codes, production authorization
 policy, or private SSH keys in the repository.
+
+## Login troubleshooting (2026-10-14)
+
+The initial credential file was verified present and readable by the
+`ai-lab-approver` service, with the expected schema and scrypt hash length.
+A self-contained synthetic password test validated the hashing and comparison
+routines without accessing or disclosing the real password or TOTP secret.
+
+The enrollment CLI originally printed the password with two spaces between
+`Senha:` and the generated URL-safe password. Version v0.5.2 now prints a
+single separating space and accepts accidentally copied leading/trailing
+whitespace during login; the generated password itself contains no whitespace.
+All **48 pytest tests passed** after the patch and the HTTPS approval endpoint
+was confirmed online. If login still fails, check the stored password carefully
+inside the password manager; do not paste secrets into chat or issue comments.
