@@ -19,6 +19,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from .audit import JsonlAuditLog
 from .auth import Auth0TokenVerifier, AuthConfig, identity_from_verified_claims
 from .authz import AuthorizationPolicy
+from .broker_client import broker_call
 from .control import ControlPlane
 from .oauth_metadata import ProtectedResourceMetadataOverride
 from .registry import DeviceRegistry
@@ -126,6 +127,45 @@ def write_file(device_id: str, path: str, content: str, timeout: int = 30) -> di
     """Write a UTF-8 text file on an authorized lab device."""
     _control_plane().write_file(_verified_identity(), device_id, path, content, timeout)
     return {"status": "ok"}
+
+
+
+def _authorize_privilege_request():
+    """Only an authenticated and explicitly granted caller can use the broker."""
+    identity = _verified_identity()
+    _control_plane()._authorize(
+        identity, "oracle-gateway", "privilege_request", "gateway:control"
+    )
+    return identity
+
+
+@mcp.tool()
+def privilege_request(operation: str, ttl_seconds: int = 1800) -> dict:
+    """Request a supervised Oracle operation. Approval is separate and manual."""
+    identity = _authorize_privilege_request()
+    return broker_call("request", identity.subject, operation=operation,
+                       ttl_seconds=ttl_seconds)
+
+
+@mcp.tool()
+def privilege_status(request_id: str) -> dict:
+    """Read the state of your own supervised privilege request."""
+    identity = _authorize_privilege_request()
+    return broker_call("status", identity.subject, request_id=request_id)
+
+
+@mcp.tool()
+def privilege_execute(request_id: str) -> dict:
+    """Execute one explicitly approved, predefined Oracle operation once."""
+    identity = _authorize_privilege_request()
+    return broker_call("execute", identity.subject, request_id=request_id)
+
+
+@mcp.tool()
+def privilege_revoke(request_id: str) -> dict:
+    """Revoke your own pending or approved Oracle operation."""
+    identity = _authorize_privilege_request()
+    return broker_call("revoke", identity.subject, request_id=request_id)
 
 
 def _http_app():
