@@ -108,3 +108,19 @@ def test_pending_request_quota(broker):
 
 def test_rejects_nonstr_operation(broker):
     assert new_request(broker, operation=["gateway-service-status"])["error"] == "invalid_parameters"
+
+
+def test_fixed_root_write_is_not_available_until_approval(broker, monkeypatch):
+    observed = []
+    def fake_run(argv, **kwargs):
+        observed.append(tuple(argv))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(broker.subprocess, "run", fake_run)
+    rid = new_request(broker, operation="broker-root-write-selftest")["request_id"]
+    assert execute(broker, rid)["error"] == "not_approved"
+    assert observed == []
+    assert broker.admin("approve", rid) == 0
+    assert execute(broker, rid)["ok"] is True
+    assert observed == [("/usr/bin/touch",
+                         "/var/lib/ai-lab-privilege-broker/root-write-selftest.ok")]
+    assert execute(broker, rid)["error"] == "not_approved"
