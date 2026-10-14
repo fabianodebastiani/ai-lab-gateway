@@ -94,3 +94,17 @@ def test_audit_records_approval_and_denial(broker):
     assert '"action":"request"' in log
     assert '"action":"execute"' in log
     assert '"action":"admin_approve"' in log
+
+
+def test_pending_request_quota(broker):
+    requests = [new_request(broker) for _ in range(broker.MAX_PENDING_PER_SUBJECT)]
+    assert all(request["ok"] for request in requests)
+    assert new_request(broker)["error"] == "pending_quota_reached"
+    rid = requests[0]["request_id"]
+    assert broker.dispatch({"action": "revoke", "subject": "auth0|user-A",
+                            "request_id": rid})["status"] == "revoked"
+    assert new_request(broker)["ok"] is True
+
+
+def test_rejects_nonstr_operation(broker):
+    assert new_request(broker, operation=["gateway-service-status"])["error"] == "invalid_parameters"
