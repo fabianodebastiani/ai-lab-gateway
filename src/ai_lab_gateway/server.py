@@ -110,6 +110,30 @@ def device_status(device_id: str) -> dict[str, str | int]:
 
 
 @mcp.tool()
+def device_connection_status(device_id: str) -> dict:
+    """Get live connectivity and the enabled/disabled persistence flag.
+
+    The preference is available for any enrolled Linux with a configured
+    systemd tunnel unit. Offline state is distinct from persistent=False.
+    """
+    return _control_plane().device_connection_status(_verified_identity(), device_id)
+
+
+@mcp.tool()
+def set_device_persistent(device_id: str, persistent: bool) -> dict:
+    """Enable/disable automatic tunnel startup on a reachable Linux target.
+
+    Requires explicit OAuth control scope, the per-device connection_manage
+    action grant and a narrow local helper. Turning persistence off does not
+    disconnect the currently active tunnel. Offline devices cannot be
+    modified via the absent reverse tunnel.
+    """
+    return _control_plane().set_device_persistent(
+        _verified_identity(), device_id, persistent
+    )
+
+
+@mcp.tool()
 def exec(device_id: str, command: str, timeout: int = 30) -> dict[str, str | int]:
     """Execute a command on an authorized lab device."""
     result = _control_plane().exec(_verified_identity(), device_id, command, timeout)
