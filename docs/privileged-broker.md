@@ -49,3 +49,52 @@ Implementado e testado diretamente na Oracle: `/usr/local/libexec/ai-lab-privile
 - Testes reais: emissão OK, execução OK, replay bloqueado, revogação OK, execução revogada bloqueada, TTL >24h bloqueado, operação desconhecida bloqueada.
 - **Limitações conhecidas:** emissão via sudo root bootstrap ainda não possui aprovador humano autenticado; banco JSON não oferece exclusão mútua para chamadas concorrentes; grant não está vinculado a sujeito OAuth/dispositivo/argumentos variáveis; revogação não encerra processos já iniciados. Não expor issue/execute diretamente ao MCP, nem usar para operações mutáveis antes de corrigir.
 - O `sudo` bootstrap permanece temporário e deve ser revogado; testes locais não significam que o sistema de aprovação remota está concluído.
+
+## Versão v0.3 — validada na Oracle (2026-10-14)
+
+- `scripts/privilege_broker.py` usa `fcntl.flock` no armazenamento local e vincula o grant ao `subject`; mantém escopo de operações somente leitura e consumo antes da execução.
+- Resultados reais: operação correta, sujeito incorreto negado, replay negado, revogação, expiração, TTL inválido, operação desconhecida; seis execuções paralelas de um mesmo grant, apenas uma bem-sucedida.
+- Arquivos de estado são `root:root`: diretório 0700, `grants.json`, `audit.jsonl`, `lock` 0600.
+
+## Versão v0.4 — daemon e integração MCP (2026-10-14)
+
+### Componentes
+
+- `scripts/privilege_broker_daemon.py`: daemon independente rodando como root pela unidade `deploy/ai-lab-privilege-broker.service`.
+- Socket local `/run/ai-lab-privilege-broker/broker.sock`, diretório `root:ai-lab-gateway` 0750, socket `root:ai-lab-gateway` 0660.
+- Cada conexão é conferida via `SO_PEERCRED`; **apenas o UID Unix `ai-lab-gateway`** pode solicitar operações pela API local. O SSH operacional `ai-maintenance` não pode conectar ao socket.
+- `src/ai_lab_gateway/broker_client.py`: cliente de socket usado pelo servidor MCP.
+- `src/ai_lab_gateway/server.py`: quatro ferramentas adicionais (`privilege_request`, `privilege_status`, `privilege_execute`, `privilege_revoke`). Todas exigem token OAuth com `gateway:control` e ação explícita `privilege_request` para dispositivo `oracle-gateway`. O `subject` é derivado exclusivamente do contexto OAuth verificado — não é argumento de ferramenta.
+- A política de produção (`/etc/ai-lab-gateway/authorization.json`) recebeu a nova ação apenas na autorização já existente para `oracle-gateway`, com backup `authorization.json.before-privilege-broker-v04`. O arquivo de política e os sujeitos OAuth nunca devem ir ao GitHub.
+
+### Fluxo de uso
+
+1. Solicitante autenticado chama `privilege_request(operation, ttl_seconds)`. O broker cria solicitação `pending` e retorna `request_id`; prazo para aprovação: 1 hora.
+2. Administrador local com acesso root, **fora do canal MCP**, revisa via `sudo /usr/local/libexec/ai-lab-privilege-brokerd --list` e confirma usando `--approve <request_id>` ou `--deny <request_id>`.
+3. Após a aprovação, começa o TTL escolhido (30 minutos padrão; máximo 24 horas).
+4. O mesmo `subject` autenticado consulta e executa a solicitação uma única vez, ou a revoga. Consumo é persistido antes de executar.
+5. Pedidos expirados, revogados, não aprovados, de sujeito errado ou já consumidos são negados; eventos relevantes ficam em `/var/lib/ai-lab-privilege-broker/requests-audit.jsonl` (root-only).
+
+### Segurança / estado atual
+
+- Operações permitidas: `gateway-service-status` e `gateway-service-enabled`. Comandos são vetores argv fixos via `subprocess.run(shell=False)`, sem argumentos de shell.
+- `flock` e escrita atômica protegem o banco JSON root-only `requests.json`; corridas de consumo são serializadas.
+- Gateway MCP e broker systemd estão ativos após restart. `ai-maintenance` não conseguiu acessar socket; `ai-lab-gateway` conseguiu.
+- Teste de integração: antes de aprovar, execução negada; após aprovação de **teste via root**, sujeito diferente negado, execução única permitida, replay negado.
+- Suíte pytest do projeto: **37 passed** em 2026-10-14 na Oracle. Inclui `tests/test_privilege_broker.py` (aprovação, expiração, vínculo a sujeito, revogação, validação e corrida de concorrência).
+- **Limitação de interface:** a instalação do código MCP e reinício do Gateway foram concluídos; o catálogo de ferramentas já carregado na conexão ChatGPT ainda exibe a versão anterior de seis ferramentas. Poderá ser necessário atualizar/reconectar o plugin para disponibilizar as quatro novas operações neste chat.
+- **Limitação de segurança:** a aprovação ainda é por CLI root local, não existe painel/UI com segundo fator. Enquanto `ai-maintenance` tiver sudo irrestrito temporário de bootstrap, a separação administrativa é bypassável por essa conta; retirar a regra até o fim da janela de bootstrap. O socket confia no Gateway como intermediário OAuth, não valida tokens OAuth diretamente.
+- O controle atual atende teste supervisonado de *operações somente leitura*, não habilita sudo arbitrário nem promete proteção contra um invasor que já tenha root. Antes de operações mutáveis: aprovação humana autenticada e independente, proteção contra spam/DoS, rotação/retenção de logs, testes de recuperação e política por operação.
+
+### Verificações operacionais
+
+```bash
+sudo systemctl is-active ai-lab-gateway ai-lab-privilege-broker
+sudo systemctl status ai-lab-privilege-broker --no-pager
+sudo /usr/local/libexec/ai-lab-privilege-brokerd --list
+sudo stat -c '%a %U:%G %n' /run/ai-lab-privilege-broker/broker.sock
+# Verificar ausência de regra irrestrita após término do bootstrap:
+sudo test ! -e /etc/sudoers.d/90-ai-lab-bootstrap && echo bootstrap_revoke_ok
+```
+
+Não publicar dumps de `authorization.json`, conteúdos de `gateway.env`, logs reais de autenticação, chaves de gestão ou conteúdos do diretório privado de estado.
