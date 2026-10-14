@@ -1,7 +1,7 @@
 [Unit]
 Description=AI Lab Gateway supervised privilege broker
 After=local-fs.target
-Before=ai-lab-gateway.service
+Before=ai-lab-gateway.service ai-lab-approval-web.service
 
 [Service]
 Type=simple
@@ -11,7 +11,7 @@ ExecStart=/usr/local/libexec/ai-lab-privilege-brokerd --serve
 Restart=on-failure
 RestartSec=3
 RuntimeDirectory=ai-lab-privilege-broker
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=0711
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
