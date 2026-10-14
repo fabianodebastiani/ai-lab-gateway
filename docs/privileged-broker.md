@@ -98,3 +98,12 @@ sudo test ! -e /etc/sudoers.d/90-ai-lab-bootstrap && echo bootstrap_revoke_ok
 ```
 
 Não publicar dumps de `authorization.json`, conteúdos de `gateway.env`, logs reais de autenticação, chaves de gestão ou conteúdos do diretório privado de estado.
+
+## Robustez v0.4.1–v0.4.2 (2026-10-14)
+
+- Reinicialização segura após falha: o broker detecta socket Unix residual, valida que é socket root-owned e somente o remove se não houver um servidor vivo; não remove outros tipos de arquivo.
+- Teste operacional de falha: `SIGKILL` enviado ao processo principal do broker; `systemd` recuperou automaticamente (`NRestarts=1`) e restabeleceu socket com modo 0660. MCP permaneceu online.
+- Limite de até 20 pedidos pendentes, ainda dentro do prazo, por `subject` para reduzir abuso; pedidos revogados não contam para o limite.
+- Validação adicional rejeita `operation` de tipo incorreto; cliente IPC fixa `subject` e `action` como campos imutáveis mesmo se receber argumentos duplicados de código interno.
+- Suíte completa na Oracle: **39 testes aprovados** depois destas melhorias. Pacote Python reinstalado, Gateway reiniciado e `gateway_status` confirmado via MCP.
+- O fluxo de aprovação continua independente e restrito ao administrador root via CLI. Sem interface de aprovação humana autenticada, não habilitar operações administrativas mutáveis.
