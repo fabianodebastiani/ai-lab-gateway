@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Narrow root-owned Linux helper: set per-device systemd persistence only.
+
+Installation prerequisites (performed by local admin / trusted installer):
+- owner root, mode 0755, directory non-writable to unprivileged accounts
+- sudoers permits ONLY two exact argv for the target's dedicated unit:
+  ... set-persistent <unit> 0
+  ... set-persistent <unit> 1
+- never expose generic systemctl or a shell in sudoers
+"""
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+
+UNIT = re.compile(r"^ai-lab-[a-z0-9-]+-tunnel\.service$")
+
+
+def set_persistent(unit: str, persistent: str) -> int:
+    if os.geteuid() != 0:
+        raise PermissionError("requires root on the device")
+    if not UNIT.fullmatch(unit) or persistent not in {"0", "1"}:
+        raise ValueError("invalid unit or persistence flag")
+    # The permitted service must be a privileged systemd unit, not
+    # writable by the unprivileged MCP SSH account.
+    unit_path = Path("/etc/systemd/system") / unit
+    entry = unit_path.stat()  # Follows symlink only if root already installed it.
+    if entry.st_uid != 0 or entry.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise PermissionError("systemd unit is not root-controlled")
+    command = "enable" if persistent == "1" else "disable"
+    result = subprocess.run(
+        ["/usr/bin/systemctl", command, unit],
+        check=False,
+        timeout=20,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C"},
+    )
+    if result.returncode != 0:
+        print("systemd did not accept the connection preference", file=sys.stderr)
+    return result.returncode
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 4 or argv[1] != "set-persistent":
+        print("Usage: ai-lab-device-connectionctl set-persistent <tunnel.service> <0|1>", file=sys.stderr)
+        return 2
+    try:
+        return set_persistent(argv[2], argv[3])
+    except (PermissionError, ValueError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
