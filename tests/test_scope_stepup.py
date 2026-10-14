@@ -117,3 +117,21 @@ def test_read_tool_does_not_require_control_scope():
 
     assert delegated is True
     assert sent == []
+
+
+def test_supervised_privilege_tools_require_control_scope():
+    """All supervised operations must trigger standard OAuth scope step-up."""
+    for tool_name in ("privilege_request", "privilege_status",
+                      "privilege_execute", "privilege_revoke"):
+        delegated = []
+
+        async def inner(scope, receive, send):
+            delegated.append(True)
+
+        app = OAuthScopeStepUp(
+            inner, StaticVerifier(["gateway:read"]), config()
+        )
+        sent = run_app(app, request_body(tool_name))
+        assert not delegated, tool_name
+        assert sent[0]["status"] == 403, tool_name
+        assert b"gateway:control" in dict(sent[0]["headers"])[b"www-authenticate"]
