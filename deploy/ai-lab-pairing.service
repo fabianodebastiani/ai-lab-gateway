@@ -7,7 +7,8 @@ Requires=ai-lab-pairing-mcp.socket ai-lab-pairing-approver.socket
 Type=simple
 User=ai-lab-pairing
 Group=ai-lab-pairing
-ExecStart=/opt/ai-lab-gateway/.venv/bin/python /usr/local/libexec/ai-lab-pairing-service
+Environment=PYTHONPATH=/opt/ai-lab-gateway/src
+ExecStart=/usr/bin/python3 /usr/local/libexec/ai-lab-pairing-service
 Restart=on-failure
 RestartSec=5
 WorkingDirectory=/
