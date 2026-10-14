@@ -1,5 +1,16 @@
 # Pairing v2 — implantação supervisionada na Oracle (piloto WSL)
 
+> **CHECKPOINT — 14/10/2026 (encerramento):** o operador informou que
+> **não executou NENHUM** dos comandos Oracle abaixo (nem cópia para
+> `/root`, nem hash, `--check` ou `--apply`). O novo serviço de
+> pareamento **não está implantado em produção**. A última checagem
+> às 05:41 UTC confirmou Oracle Gateway e Raspberry online, WSL offline
+> (túnel sob demanda), e nenhum listener novo em `10003` ou `8002`.
+> **Não executar nada apenas por ler este runbook.** Na próxima sessão,
+> revisar o instalador, revalidar hash/serviços e seguir as instruções
+> sob controle do operador. Consulte o
+> [checkpoint completo](checkpoint-2026-10-14-pairing-v2.md).
+>
 Estado em 2026-10-14 UTC: **artefatos compilados e preparados; NÃO instalado em produção**.
 
 ## Objetivo e limites
