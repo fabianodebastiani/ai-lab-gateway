@@ -11,6 +11,7 @@ import json
 import os
 import pwd
 import secrets
+import stat
 import socket
 import socketserver
 import struct
@@ -205,8 +206,23 @@ def daemon():
     SOCKET.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     os.chown(SOCKET.parent, 0, gid)
     os.chmod(SOCKET.parent, 0o750)
-    if SOCKET.exists():
-        raise RuntimeError("socket exists: refusing to unlink without operator check")
+    # Recover from a crash that left behind a stale Unix socket. Never remove
+    # a non-socket path or the socket of a still-running server.
+    try:
+        existing = SOCKET.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if not stat.S_ISSOCK(existing.st_mode) or existing.st_uid != 0:
+            raise RuntimeError("unexpected socket path: refusing to replace")
+        with socket.socket(socket.AF_UNIX) as probe:
+            probe.settimeout(1)
+            try:
+                probe.connect(str(SOCKET))
+            except ConnectionRefusedError:
+                SOCKET.unlink()
+            else:
+                raise RuntimeError("another broker is already listening")
     with ThreadServer(str(SOCKET), Handler) as server:
         os.chown(SOCKET, 0, gid)
         os.chmod(SOCKET, 0o660)
