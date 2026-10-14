@@ -5,6 +5,7 @@ Requires=ai-lab-pairing-mcp.socket ai-lab-pairing-approver.socket
 
 [Service]
 Type=simple
+Sockets=ai-lab-pairing-mcp.socket ai-lab-pairing-approver.socket
 User=ai-lab-pairing
 Group=ai-lab-pairing
 Environment=PYTHONPATH=/opt/ai-lab-gateway/src
