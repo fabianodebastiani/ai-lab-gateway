@@ -28,7 +28,7 @@ manifests de SHA-256 **fixados**, backups, checagens de serviços, e rollback.
 **SHA-256 do instalador (confirmar independentemente antes de executar):**
 
 ```text
-55e1fe5880ad0aa94527d1bd2be9b49e300ba955d9cc1a8593508c9b46d5e01a
+058061a8831292038c068f2368d6371eedb709986211397de2e8fd611aa318ce
 ```
 
 ## Única intervenção do administrador Oracle (conta `ubuntu`)
