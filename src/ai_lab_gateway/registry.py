@@ -6,6 +6,7 @@ other secrets are referenced by path and are never stored in the registry.
 
 from dataclasses import dataclass
 import json
+import re
 from pathlib import Path
 
 
@@ -18,6 +19,8 @@ class Device:
     tunnel_port: int
     identity_file: str
     enabled: bool = True
+    # The target's root-controlled systemd tunnel unit (None = legacy/unconfigured).
+    connection_unit: str | None = None
 
     @classmethod
     def from_dict(cls, raw: dict) -> "Device":
@@ -36,6 +39,13 @@ class Device:
                 f"device {raw['id']} tunnel_host must be loopback; got {host!r}"
             )
 
+        unit = raw.get("connection_unit")
+        if unit is not None:
+            if not isinstance(unit, str) or not re.fullmatch(
+                r"ai-lab-[a-z0-9-]+-tunnel[.]service", unit
+            ):
+                raise ValueError(f"invalid connection_unit for {raw['id']}")
+
         return cls(
             id=str(raw["id"]),
             name=str(raw["name"]),
@@ -44,6 +54,7 @@ class Device:
             tunnel_port=port,
             identity_file=str(raw["identity_file"]),
             enabled=bool(raw.get("enabled", True)),
+            connection_unit=unit,
         )
 
 
