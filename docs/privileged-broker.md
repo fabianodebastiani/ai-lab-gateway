@@ -115,3 +115,14 @@ Não publicar dumps de `authorization.json`, conteúdos de `gateway.env`, logs r
 - Suíte completa: **40 passed** na Oracle, após instalar o novo pacote e reiniciar o serviço.
 - Foi verificado através do SDK MCP, com variáveis OAuth fictícias apenas para inspeção (sem usar credenciais reais), que o processo instalado registra **10 ferramentas**: `gateway_status`, `list_devices`, `device_status`, `exec`, `read_file`, `write_file`, `privilege_request`, `privilege_status`, `privilege_execute`, `privilege_revoke`.
 - O catálogo desta conversa ChatGPT ainda contém apenas as seis ferramentas antigas: isso não equivale a falha do processo MCP; verificar atualização da conexão/metadata antes de um teste ponta a ponta via ChatGPT.
+
+## Root-write supervision proof (2026-10-14)
+
+A fixed-operation test `broker-root-write-selftest` was added. It runs only
+`/usr/bin/touch /var/lib/ai-lab-privilege-broker/root-write-selftest.ok` in the
+root broker process. The operational account cannot directly write in that
+directory. A request was rejected while pending, approved for the test using
+the root CLI, consumed once to create a `root:root` 0600 marker, and rejected
+on replay. This demonstrates the privilege boundary, **not** a real human
+approval flow (the approval used temporary bootstrap root access).
+Following the new regression test, the entire suite passed **41 tests**.
