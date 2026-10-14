@@ -166,3 +166,42 @@ enrollment; MCP unaffected. Full suite **48 passed**; private credential and
 actual human website approval are pending. See
 [docs/approval-web.md](approval-web.md) for authoritative enrollment, runbook,
 security details and recovery.
+
+## Próximo marco: encerrar bootstrap e habilitar catálogo seguro (2026-10-14)
+
+A aprovação humana pelo site + TOTP já foi comprovada ponta a ponta:
+solicitação OAuth do ChatGPT -> aprovação humana independente -> execução
+única -> bloqueio de replay. O serviço de aprovação está ativo.
+
+**Verificação atual às 02:08 UTC:** a conta operacional `ai-maintenance`
+ainda podia executar `sudo -n id -u` como UID 0 por causa da regra
+`/etc/sudoers.d/90-ai-lab-bootstrap`. O timer persistente
+`ai-lab-bootstrap-revoke-persistent.timer` está ativo, programado para
+**2026-10-14 02:21:58 UTC**; há também um timer transitório posterior.
+A identidade de recuperação `ubuntu` foi verificada com `sudo`.
+
+A tentativa de apagar imediatamente a regra via ferramenta MCP foi
+**bloqueada pelo ambiente**; nenhuma remoção imediata foi confirmada.
+Não contornar esse bloqueio. Aguardar o timer persistente e verificar:
+`sudo -n id -u` pela conta `ai-maintenance` deve falhar,
+`ai-lab-gateway`, `ai-lab-privilege-broker` e
+`ai-lab-approval-web` devem permanecer ativos, e o MCP deve continuar
+conseguindo solicitar/consultar operações pelo broker. Não registrar como
+revogado antes desses testes.
+
+### Fase seguinte: operações privilegiadas com permissões mínimas
+
+1. Catálogo explícito e versionado de operações com argumentos validados,
+   consequências e testes; sem `shell=True` e sem sudo arbitrário.
+2. Primeiras opções para revisão: consulta de serviço/logs, reinício de um
+   serviço específico e verificação de configurações. Cada operação mutável
+   exigirá confirmação humana por TOTP, uso único e rollback quando aplicável.
+3. Distinguir pedidos em duplicidade no painel com ID abreviado, horário e
+   escopo; evitar autorizações involuntárias por nomes iguais.
+4. Revisar revogação de concessões temporárias, rastreabilidade e procedimento
+   de recuperação independente pelo usuário `ubuntu`.
+5. Somente depois considerar duração renovável, perfis e gestão por dispositivo.
+
+Observação: a interface humana permite aprovar operações pré-definidas,
+não concede shell root geral. O sudo temporário é uma exceção **fora** desse
+modelo e deve ser efetivamente encerrado.
