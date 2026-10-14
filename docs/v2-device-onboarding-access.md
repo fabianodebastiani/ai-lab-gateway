@@ -32,7 +32,7 @@ on demand, with an authenticated authorization flow.
    authenticates the new device — it does not elevate its privileges.
 4. Enrollment provisions the registry/policy, device-specific SSH public
    keys, loopback-only reverse listener, pinned SSH host identities and
-   persistent reconnecting service in a fail-closed, auditable way.
+   reconnecting systemd service in the chosen connection mode in a\n   fail-closed, auditable way.
 5. Only after identity verification, bidirectional SSH and negative
    permission tests does the device appear in MCP as **Restricted**.
    An incomplete pairing cannot accidentally enable sudo.
@@ -43,6 +43,33 @@ on demand, with an authenticated authorization flow.
 **Enrollment invariant:** no onboarding API argument, token or missing field
 may cause a newly enrolled device to start as Partial or Unrestricted. The
 initial mode is a server-enforced constant, not just a selected UI default.
+
+## Connection lifecycle (separate from permission levels)
+
+Enrollment has an **independent** connection preference, not an extra access
+profile:
+
+| Connection mode | Default targets | User-facing behavior | Startup behavior |
+| --- | --- | --- | --- |
+| **On-demand** | Windows laptops / WSL | Connect / Disconnect locally at will | systemd tunnel unit **disabled**, started manually; while connected, recover from SSH failures |
+| **Persistent** | Raspberry Pi, OCI, always-on Linux | Continually available while the host is powered and networked | tunnel unit **enabled**, automatically starts on Linux boot and reconnects after failure |
+
+The installer should infer a sensible default from the environment and allow
+a simple override (e.g., "Auto-connect when this Linux starts?").
+**The choice is independent of Restricted/Partial/Unrestricted**, which are
+only available after registration.
+
+The Connect/Disconnect commands do **not** rotate SSH keys, unregister the
+device, revoke access grants, or enable sudo. A local control script is now
+available at `scripts/device-connection.sh` and accepts one of
+`connect`, `disconnect`, `on-demand`, `persistent`, or `status`.
+Changing modes requires target-side administrator rights, not MCP sudo.
+
+**Important:** when a device disconnects from its reverse tunnel, the
+Gateway cannot contact it to reconnect; local start on that Linux, a Windows
+shortcut/tray action, or a separately approved out-of-band mechanism is
+required. WSL systemd may restart its own SSH service **after** the distro
+starts, but does not wake the PC or start WSL automatically at Windows boot.
 
 ## On-demand access changes — exactly three radio buttons
 
@@ -130,7 +157,7 @@ duration validation, automatic expiry to Restricted, and regression tests.
 Pure domain logic exists in `src/ai_lab_gateway/access_profiles.py` and
 `tests/test_access_profiles.py`; this does NOT implement target-side sudo.
 
-B. **Restricted-first enrollment** — device installer, HTTPS pairing API,
+B. **Restricted-first enrollment** — device installer with independent\nconnection preference (On-demand/Persistent), HTTPS pairing API,
 short-lived one-use code, verified device identity, gateway-side registration,
 dedicated SSH trust and tunnel automation. The pairing API must force
 Restricted regardless of client input. Validate on a test Linux device.
@@ -144,7 +171,7 @@ D. **Approval experience** — exactly three radio controls during an
 elevation request, dropdown only for Partial, authenticated human
 confirmation, visible countdown, and immediate revoke option.
 
-E. **End-to-end acceptance** — add a fresh Linux with one setup command,
+E. **End-to-end acceptance** — add a fresh Linux with one setup command,\nverify manual Connect/Disconnect and auto-restart on a persistent server,
 prove it starts Restricted, request Partial for 15 minutes, validate access
 before/after expiry, revoke, try Unrestricted on a disposable test device,
 then ensure the existing Raspberry/WSL/Oracle devices are unaffected.
