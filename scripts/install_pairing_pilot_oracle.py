@@ -43,7 +43,7 @@ EXPECTED = {
     "registry.py": "2a10698065fbb5338462707f51c68e418e781aaf00f7acd48b786bada4a8f764",
     "scope_stepup.py": "98159c8d92af8203bd5e7a415296bb50e181cd969fbe7ee115d12f9377d6f446",
     "server.py": "62c8d3b4898fe4e5e079a67fd83133635d3a5031ad9f39dda1238bfed40ff12d",
-    "ai-lab-pairing.service": "2254309c35a7afaf9774d433fd47c43ed9d11b2612b12990c60d2c940315eab0",
+    "ai-lab-pairing.service": "f87d4afe9974d0f47f3323902b9af7e912aec2c78a1a41f063dd6cfafc6feea7",
     "ai-lab-pairing-mcp.socket": "72e799a842dd0e7ff1fd68f3c8e34a6e0e063613e13cccdd2d827f820a009682",
     "ai-lab-pairing-approver.socket": "4f63fe9f4bd92405268b834e0e3d62e96eed3cfc9484f7c232361d1d20052dcf",
 }
