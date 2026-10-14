@@ -4,61 +4,100 @@ Status (2026-10-14): approved requirements, implementation in progress.
 This supersedes any UX mockups that presented duration as multiple radio options.
 No part of this document claims a deployed enrollment API or remote sudo grant.
 
-## One unified onboarding workflow
+## Product decision — 2026-10-14: enrollment always starts restricted
 
-1. An operator runs one guided installer on a Linux target, with minimal
-   prerequisites (OpenSSH, Python or shell, outbound HTTPS/SSH). The target
-   generates its **own** tunnel key and never exports its private half.
-2. It requests a pending pairing with the gateway over authenticated TLS,
-   using an unpredictable one-time pairing credential. The gateway generates
-   a distinct management key and keeps its private half exclusively local.
-3. The operator reviews device identity/fingerprint, device name, source
-   and capabilities. They choose an initial access profile using **exactly
-   three radio buttons**:
-   - **Restricted** (restrito): normal isolated Linux user, no administrative
-     elevation; **default** on a fresh enrollment.
-   - **Partial** (parcial): administrative access for a chosen time window.
-     **Only this radio** reveals a duration dropdown. Initial options:
-     15 min, 30 min, 1 h, 2 h, 4 h, 8 h, 24 h.
-     After the deadline, new administrative commands are denied and the
-     device reverts to Restricted automatically.
-   - **Unrestricted** (irrestrito): broad administrative access on this
-     specific experimental device until revoked. Explicit opt-in with risk
-     description and visible revoke control; never the enrollment default.
-4. Pairing approval causes atomic, verified provisioning of the gateway-side
-   registry/policy, loopback-only reverse listener allocation, per-device
-   tunnel public key restrictions, target-side pinned gateway host identity,
-   per-device SSH management public key, and managed reconnecting systemd
-   service. No private keys are copied between parties.
-5. The device is listed by MCP only after identity verification, successful
-   reverse SSH/management SSH, and required negative permission tests.
-   A failed pairing remains pending or rolls back, with an audit record.
+**Accepted decision:** Pairing a device and granting elevated Linux privileges
+are independent workflows with different lifetimes. **All newly paired devices
+must start in Restricted mode.** The initial device-pairing screen shall NOT
+ask the operator to choose Restricted / Partial / Unrestricted. Device
+enrollment does require an explicit confirmation of the *device identity*
+before adding a trusted connection, but that is not authorization for sudo.
 
-## Access change for existing devices
+This decision supersedes earlier text that required choosing an access
+profile during onboarding. It avoids accidental root privileges and makes
+onboarding substantially simpler. Mode changes are requested *after pairing*,
+on demand, with an authenticated authorization flow.
 
-The identical three radios are shown when changing permissions on an
-already-enrolled Linux, subject to operator/device authorization.
-Partial shows the dropdown; other radios do **not** show any time selector.
-The policy UI must display the effective profile, who authorized it,
-remaining time, last change, and a one-click revoke action.
+## Simple device enrollment — one-time pairing
 
-Possible ChatGPT request:
-> The command needs administrative rights on raspberry-lab.
-> ( ) Restricted   ( ) Unrestricted   (x) Partial
-> [30 min ▼]    [Confirm] [Cancel]
+1. An operator runs one guided installer on a new Linux target, with
+   minimal prerequisites (OpenSSH, Python or shell, outbound HTTPS/SSH).
+   The device creates its own tunnel private key locally; this key never
+   leaves the device.
+2. The device establishes a short-lived, single-use HTTPS pairing request.
+   The gateway creates a separate per-device management key and keeps the
+   private half on the Oracle gateway.
+3. The operator checks the new device's identifier, reported identity and
+   host-key fingerprint and confirms **pair this device**. The confirmation
+   authenticates the new device — it does not elevate its privileges.
+4. Enrollment provisions the registry/policy, device-specific SSH public
+   keys, loopback-only reverse listener, pinned SSH host identities and
+   persistent reconnecting service in a fail-closed, auditable way.
+5. Only after identity verification, bidirectional SSH and negative
+   permission tests does the device appear in MCP as **Restricted**.
+   An incomplete pairing cannot accidentally enable sudo.
+6. From this point, normal permitted operations are available without
+   asking for administrative approval. A request for elevated permissions
+   can be made later if a task needs them.
 
-This is a **UX concept**. A rendered ChatGPT button alone is **not** proof
-that an authenticated human approved a privilege change. The gateway must
-obtain verified and auditable operator consent via a host-provided MCP
-confirmation capability (when actually supported and provably bound to the
-requester), or through a minimal independent HTTPS approval flow.
-Do not treat a model-generated message, unconstrained conversation text,
-or an OAuth-authenticated AI-client token by itself as human approval.
+**Enrollment invariant:** no onboarding API argument, token or missing field
+may cause a newly enrolled device to start as Partial or Unrestricted. The
+initial mode is a server-enforced constant, not just a selected UI default.
 
-Google Authenticator remains an available step-up factor, **not** something
-the operator must enter before every normal command or each sudo command in
-an already authorized partial window. High-risk unrestricted grants may
-reasonably demand independent confirmation.
+## On-demand access changes — exactly three radio buttons
+
+Only after the device is registered, an operator can request a change to its
+effective access. This may happen during an MCP task, when a command needs
+administrative privileges, or from a device-management page.
+
+There are **exactly three radio options**, not four (duration is not a
+separate radio option):
+
+- **Restricted / Restrito:** normal isolated Linux management account,
+  no general administrative sudo. Default at enrollment, and the state
+  returned to after temporary access expires.
+- **Unrestricted / Irrestrito:** explicit, high-risk opt-in for broad root
+  administration on one specific lab device, remaining until revoked.
+  Never implicit, never enabled on the Oracle or any other device merely
+  because a new device is enrolled.
+- **Partial / Parcial:** administrative capabilities available for the
+  chosen **duration**. Only when Partial is selected is a dropdown shown:
+  **15 min, 30 min, 1 h, 2 h, 4 h, 8 h, 24 h**. The default choice for a
+  newly requested partial grant can be 30 minutes. Once the deadline is
+  reached, the enforcing device-side component refuses **new** privileged
+  commands and the effective mode becomes Restricted.
+
+Example desired interface:
+
+```text
+Raspberry Pi Lab: administrative access requested
+
+( ) Restricted
+( ) Unrestricted
+(x) Partial
+    Duration: [ 30 minutes ▼ ]
+
+[Confirm authorization] [Cancel]
+```
+
+The confirmed mode belongs to the selected **device**, not to the Gateway
+in general. The UI should display the active profile, remaining time where
+applicable, who approved it, last change, and an early-revoke action.
+Changing the connection or re-enrolling the device is never required.
+
+### Approval and Google Authenticator
+
+The preferred experience is an operator confirmation surfaced within the
+ChatGPT task. However, a simulated chat button is *not by itself* a secure,
+authenticated grant. We must verify whether the ChatGPT/MCP host provides a
+suitable approval API that binds the consent to a user, operation, device and
+time. If not, a short, authenticated HTTPS confirmation step is needed.
+
+The existing password + Google Authenticator panel is a reusable optional
+step-up and administrative recovery mechanism. It is **not** a requirement
+for every normal command, every sudo command during an active partial
+window, or the initial device enrollment. Higher-risk Unrestricted grants
+may use stronger confirmation.
 
 ## Enforcement and safety boundaries
 
@@ -86,22 +125,52 @@ reasonably demand independent confirmation.
 
 ## Incremental acceptance milestones
 
-A. Three-mode model, strict duration validation and expiration regression
-tests, with restricted default. Source:
-\`src/ai_lab_gateway/access_profiles.py\`, tests:
-\`tests/test_access_profiles.py\`. Pure domain logic only: no system-level
-privilege changes in this phase.
+A. **Three-profile contract** — model Restricted, Partial and Unrestricted,
+duration validation, automatic expiry to Restricted, and regression tests.
+Pure domain logic exists in `src/ai_lab_gateway/access_profiles.py` and
+`tests/test_access_profiles.py`; this does NOT implement target-side sudo.
 
-B. Device installer + pairing API + operator approval + device registry
-transactions; complete end-to-end test with new Linux target.
+B. **Restricted-first enrollment** — device installer, HTTPS pairing API,
+short-lived one-use code, verified device identity, gateway-side registration,
+dedicated SSH trust and tunnel automation. The pairing API must force
+Restricted regardless of client input. Validate on a test Linux device.
 
-C. Target-local privilege enforcement with restricted, partial (time-bound)
-and unrestricted profiles; automatic expiration, logout/reboot recovery,
-revocation and negative escalation tests.
+C. **Device-local privilege enforcement** — root-capable target helper,
+grants and revocation, one explicit Unrestricted opt-in, Partial expiration
+after restart or network interruption, deny-by-default tests and audit.
+Privilege changes must be bound to approved operator/device/scope.
 
-D. UI integration: exactly three radio controls and only one dropdown,
-linked to verified human approval. Human usability testing in ChatGPT.
-At this point, the feature can be declared ready.
+D. **Approval experience** — exactly three radio controls during an
+elevation request, dropdown only for Partial, authenticated human
+confirmation, visible countdown, and immediate revoke option.
+
+E. **End-to-end acceptance** — add a fresh Linux with one setup command,
+prove it starts Restricted, request Partial for 15 minutes, validate access
+before/after expiry, revoke, try Unrestricted on a disposable test device,
+then ensure the existing Raspberry/WSL/Oracle devices are unaffected.
+
+Do not declare enrollment or privilege administration complete before
+B–E are validated on real devices.
+
+## Prerequisites before installing live components
+
+- **Available now:** GitHub repository and connector, operational MCP/HTTPS
+  and SSH reverse tunnel, existing Oracle privilege broker, approved product
+  direction, and a dedicated test suite.
+- **Oracle privileged deployment:** the temporary unrestricted sudo grant
+  was automatically revoked. Root-owned services, pairing listener routing,
+  keys and system policy require **a new, explicitly approved installation
+  path** using the Oracle `ubuntu` administrative recovery account.
+  No permanent wildcard sudo for `ai-maintenance`.
+- **Test Linux target:** preferably a disposable VM or spare Linux/Raspberry,
+  where an operator has local sudo for the *one-time installer*, and Internet
+  outbound HTTPS/SSH. A simulated test can precede it; do not risk the
+  existing Raspberry and WSL as the first real enrollment.
+- **Proof of human authorization:** choose and verify a native MCP/client
+  confirmation capability if available, otherwise adapt the existing web
+  approval. A model-written message must not be trusted as approval.
+- **Safety:** snapshots/backups, logging and rollback of registry/keys;
+  negative tests proving that Restricted cannot run arbitrary sudo.
 
 ## Operational status observed
 
