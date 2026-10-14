@@ -126,3 +126,9 @@ the root CLI, consumed once to create a `root:root` 0600 marker, and rejected
 on replay. This demonstrates the privilege boundary, **not** a real human
 approval flow (the approval used temporary bootstrap root access).
 Following the new regression test, the entire suite passed **41 tests**.
+
+## ChatGPT live MCP test after connection refresh — 2026-10-14
+
+The refreshed ChatGPT MCP app exposed all **10** tools, including the four privileged-broker operations. A real OAuth-authenticated call to `privilege_request(operation="gateway-service-status", ttl_seconds=1800)` succeeded and returned `pending`; subsequent `privilege_status` confirmed it remained pending, and `privilege_execute` before approval was rejected with `not_approved`. This confirms the end-to-end request and denial path in the **actual ChatGPT session**, distinct from earlier local socket tests.
+
+Pending human approval through the independent root CLI is required for the positive approval/execution path. Request identifiers are ephemeral and not recorded in this document.
