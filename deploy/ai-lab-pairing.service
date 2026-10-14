@@ -1,0 +1,37 @@
+[Unit]
+Description=AI Lab Gateway v2 restricted-first Linux pairing service
+After=network.target ai-lab-pairing-mcp.socket ai-lab-pairing-approver.socket
+Requires=ai-lab-pairing-mcp.socket ai-lab-pairing-approver.socket
+
+[Service]
+Type=simple
+User=ai-lab-pairing
+Group=ai-lab-pairing
+ExecStart=/opt/ai-lab-gateway/.venv/bin/python /usr/local/libexec/ai-lab-pairing-service
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/
+StateDirectory=ai-lab-pairing
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/ai-lab-pairing
+InaccessiblePaths=/etc/ai-lab-gateway /etc/ai-lab-approval /var/lib/ai-lab-gateway /var/lib/ai-lab-approval /var/lib/ai-lab-privilege-broker
+
+[Install]
+WantedBy=multi-user.target
