@@ -124,3 +124,33 @@ def test_fixed_root_write_is_not_available_until_approval(broker, monkeypatch):
     assert observed == [("/usr/bin/touch",
                          "/var/lib/ai-lab-privilege-broker/root-write-selftest.ok")]
     assert execute(broker, rid)["error"] == "not_approved"
+
+
+def test_web_approval_api_requires_pending_and_is_one_use(broker):
+    rid = new_request(broker)["request_id"]
+    listed = broker.approval_dispatch({"action": "list"})
+    assert listed["ok"] is True
+    assert any(item["request_id"] == rid for item in listed["requests"])
+    assert execute(broker, rid)["error"] == "not_approved"
+    assert broker.approval_dispatch({"action": "approve", "request_id": rid})["status"] == "approved"
+    assert execute(broker, rid)["ok"] is True
+    assert execute(broker, rid)["error"] == "not_approved"
+    assert broker.approval_dispatch({"action": "approve", "request_id": rid})["error"] == "not_pending"
+
+
+def test_web_approval_deny_and_invalid_actions(broker):
+    rid = new_request(broker)["request_id"]
+    assert broker.approval_dispatch({"action": "shell"})["error"] == "unsupported"
+    assert broker.approval_dispatch({"action": "deny", "request_id": rid})["status"] == "denied"
+    assert execute(broker, rid)["error"] == "not_approved"
+    assert broker.approval_dispatch({"action": "approve", "request_id": rid})["error"] == "not_pending"
+    assert broker.approval_dispatch({"action": "approve", "request_id": ["bad"]})["error"] == "invalid_request_id"
+
+
+def test_web_approval_pending_expiry(broker, monkeypatch):
+    t = [2_000_000]
+    monkeypatch.setattr(broker.time, "time", lambda: t[0])
+    rid = new_request(broker)["request_id"]
+    t[0] += broker.PENDING_TTL + 1
+    assert broker.approval_dispatch({"action": "approve", "request_id": rid})["error"] == "not_pending"
+    assert not broker.approval_dispatch({"action": "list"})["requests"]
