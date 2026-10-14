@@ -99,3 +99,7 @@ and can only approve or deny pending, whitelisted broker requests.
 
 See [docs/approval-web.md](docs/approval-web.md) for the setup, security
 model, troubleshooting, and acceptance procedure.
+
+## Next milestone: v2 device pairing and access profiles
+
+Implementation is underway for simple Linux pairing and exactly three access radio modes: Restricted, Partial (duration dropdown only), and Unrestricted. An expired partial grant returns to Restricted. The initial domain model and tests are in `src/ai_lab_gateway/access_profiles.py` and `tests/test_access_profiles.py`; this is not yet deployed privilege enforcement. See [unified v2 requirements](docs/v2-device-onboarding-access.md) for security boundaries and milestones.
