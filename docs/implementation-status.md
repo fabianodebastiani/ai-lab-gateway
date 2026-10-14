@@ -198,3 +198,35 @@ For reconstruction and troubleshooting, read:
 - `docs/deployment.md`;
 - `docs/build-log.md`;
 - `docs/decisions.md`.
+
+## Experimental supervised privilege broker — 2026-10-14
+
+- Oracle self-management enrolled as `oracle-gateway` via loopback SSH under
+  non-root `ai-maintenance`. Other registered devices: `raspberry-lab`,
+  `windows-wsl`.
+- Separate `ai-lab-privilege-broker` systemd service, hardened as root,
+  exposes a restricted Unix socket only to the `ai-lab-gateway` service UID.
+- Oracle MCP code now defines ten tools; new ones:
+  `privilege_request`, `privilege_status`, `privilege_execute`,
+  `privilege_revoke`. Requires OAuth `gateway:control`, action grant
+  `privilege_request` on `oracle-gateway`, and transport step-up challenge.
+- Privileged operations are fixed `subprocess` argv, with root-only storage,
+  atomic updates, `flock` concurrency locking, subject binding, one-time use,
+  revocation, expiry, audit, and a 20-pending-request limit per subject.
+- Independent approval currently requires the local root CLI; **there is no
+  remote UI approval**. Testing a root CLI approval using bootstrap sudo is
+  not proof of an independent human approval.
+- Crash-recovery validated with forced `SIGKILL` and systemd auto-restart.
+- Controlled real root-write test: request was denied until approval; after
+  test approval, root-only marker was created and replay was denied. No arbitrary
+  root-shell execution was enabled.
+- **41 passing pytest tests** on the Oracle checkout. The MCP service and
+  broker were both confirmed active.
+- GitHub documentation and source are the canonical record; the Oracle's
+  older local git checkout is not guaranteed to fast-forward because a local
+  bootstrap commit diverged and the VM lacks GitHub HTTPS write credentials.
+- Temporary passwordless sudo for `ai-maintenance` remains a **bootstrap
+  exception** scheduled to expire, with a persistent systemd revocation timer.
+  It is not part of the final broker design.
+
+Full details in [privileged-broker.md](privileged-broker.md).
