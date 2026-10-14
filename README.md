@@ -116,3 +116,23 @@ The initial profile domain model and regression tests exist in
 enforcement are **not yet deployed**. See [ADR-027](docs/decisions.md) and the
 [unified v2 product specification](docs/v2-device-onboarding-access.md)
 for the approved design and rollout prerequisites.
+
+### Universal connection persistence flag (v2 preparation)
+
+Every enrolled Linux device, regardless of hardware type, can select
+`persistent=true` (automatic tunnel startup on Linux boot) or
+`persistent=false` (local/manual connection). Connection preference is
+**independent** of Restricted/Partial/Unrestricted permissions and current
+online/offline status.
+
+The proposed MCP operations `device_connection_status(device_id)` and
+`set_device_persistent(device_id, persistent: bool)` have been implemented
+in the repository but are **not yet deployed**. The setter requires separate
+`connection_manage` authorization on the requested device and a
+specifically allowlisted helper installed by that device's administrator.
+Changing the flag does not directly connect/disconnect a live session; an
+offline target cannot be reconnected via its already-down reverse tunnel.
+
+Sources: [ADR-028](docs/decisions.md),
+[`connection_control.py`](src/ai_lab_gateway/connection_control.py),
+[`ai-lab-device-connectionctl`](scripts/ai-lab-device-connectionctl).
