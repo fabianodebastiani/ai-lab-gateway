@@ -21,6 +21,7 @@ from .auth import Auth0TokenVerifier, AuthConfig, identity_from_verified_claims
 from .authz import AuthorizationPolicy
 from .broker_client import broker_call
 from .control import ControlPlane
+from .pairing_client import pairing_call
 from .oauth_metadata import ProtectedResourceMetadataOverride
 from .registry import DeviceRegistry
 from .scope_stepup import OAuthScopeStepUp
@@ -190,6 +191,40 @@ def privilege_revoke(request_id: str) -> dict:
     """Revoke your own pending or approved Oracle operation."""
     identity = _authorize_privilege_request()
     return broker_call("revoke", identity.subject, request_id=request_id)
+
+
+def _authorize_device_pairing():
+    """Require an explicit enrollment grant, separate from normal exec."""
+    identity = _verified_identity()
+    _control_plane()._authorize(
+        identity, "oracle-gateway", "device_enroll", "gateway:control"
+    )
+    return identity
+
+
+@mcp.tool()
+def pairing_invite() -> dict:
+    """Start restricted-first pairing; returns a 10-minute single-use token.
+
+    A token only lets the target request pairing: it cannot approve, activate
+    or grant administrative privileges. Human authorization is independent.
+    """
+    identity = _authorize_device_pairing()
+    return pairing_call("invite", identity.subject)
+
+
+@mcp.tool()
+def pairing_requests() -> dict:
+    """List your own pending/approved device pairings (no SSH secrets)."""
+    identity = _authorize_device_pairing()
+    return pairing_call("list_mine", identity.subject)
+
+
+@mcp.tool()
+def pairing_status(request_id: str) -> dict:
+    """Get the state of your own device pairing request."""
+    identity = _authorize_device_pairing()
+    return pairing_call("status", identity.subject, request_id=request_id)
 
 
 def _http_app():
