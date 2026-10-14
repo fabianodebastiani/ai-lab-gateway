@@ -35,3 +35,17 @@ Atualizado: 2026-10-14 UTC. Projeto experimental independente.
 - [ ] Implementar API MCP de solicitação/status/revogação, com scopes e audit.
 - [ ] Implantar fluxo seguro de aprovação humana e testes positivos/negativos.
 - [ ] Revogar sudo irrestrito de bootstrap; validar ausência de root via `exec` genérico.
+
+## Progresso v0.2 — 2026-10-14 UTC
+
+Implementado e testado diretamente na Oracle: `/usr/local/libexec/ai-lab-privilege-broker`. Fonte publicada em `scripts/privilege_broker.py` (commit `417670c`).
+
+- Interface local exclusivamente root, sem endpoint MCP de concessão de privilégios.
+- Banco de grants root-only em `/var/lib/ai-lab-privilege-broker/grants.json`, atualização atômica e auditoria JSONL.
+- `issue OPERATION --ttl SECONDS`: cria grant aleatório de uso único, validade entre 1 e 86400 segundos; default 1800 segundos.
+- `execute GRANT_ID`: verifica ativo/não expirado e consome **antes** da execução, impedindo replay.
+- `revoke GRANT_ID`: invalida o grant.
+- Lista positiva inicial: `gateway-service-status` e `gateway-service-enabled`, ambas somente leitura, executadas via argv fixo sem shell.
+- Testes reais: emissão OK, execução OK, replay bloqueado, revogação OK, execução revogada bloqueada, TTL >24h bloqueado, operação desconhecida bloqueada.
+- **Limitações conhecidas:** emissão via sudo root bootstrap ainda não possui aprovador humano autenticado; banco JSON não oferece exclusão mútua para chamadas concorrentes; grant não está vinculado a sujeito OAuth/dispositivo/argumentos variáveis; revogação não encerra processos já iniciados. Não expor issue/execute diretamente ao MCP, nem usar para operações mutáveis antes de corrigir.
+- O `sudo` bootstrap permanece temporário e deve ser revogado; testes locais não significam que o sistema de aprovação remota está concluído.
