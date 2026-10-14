@@ -83,6 +83,9 @@ def verify_stage():
     # Ensure source/target map is complete and no unreviewed write paths exist.
     if set(DEST) != set(EXPECTED):
         raise RuntimeError("installer target list does not match pinned manifest")
+    names = {entry.name for entry in STAGE.iterdir()}
+    if names != set(EXPECTED) | {"install_pairing_pilot_oracle.py"}:
+        raise RuntimeError("unreviewed or missing files in root staging directory")
     if not PACKAGE.is_dir() or not POLICY.is_file() or not CADDY.is_file():
         raise RuntimeError("reference gateway installation not found")
     if "gateway.debasti.com {" not in CADDY.read_text():
