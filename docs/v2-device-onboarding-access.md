@@ -44,32 +44,57 @@ on demand, with an authenticated authorization flow.
 may cause a newly enrolled device to start as Partial or Unrestricted. The
 initial mode is a server-enforced constant, not just a selected UI default.
 
-## Connection lifecycle (separate from permission levels)
+## Per-device connection flag (independent of privilege profiles)
 
-Enrollment has an **independent** connection preference, not an extra access
-profile:
+Every Linux device, regardless of whether it is a laptop or a server, has
+one configurable Boolean preference:
 
-| Connection mode | Default targets | User-facing behavior | Startup behavior |
-| --- | --- | --- | --- |
-| **On-demand** | Windows laptops / WSL | Connect / Disconnect locally at will | systemd tunnel unit **disabled**, started manually; while connected, recover from SSH failures |
-| **Persistent** | Raspberry Pi, OCI, always-on Linux | Continually available while the host is powered and networked | tunnel unit **enabled**, automatically starts on Linux boot and reconnects after failure |
+- **Persistent = on** (`persistent=true`): the local systemd SSH tunnel
+  starts on subsequent Linux boots and reconnects automatically after failure.
+- **Persistent = off** (`persistent=false`): do not start automatically.
+  The operator may still **Connect** and **Disconnect** the tunnel on demand.
 
-The installer should infer a sensible default from the environment and allow
-a simple override (e.g., "Auto-connect when this Linux starts?").
-**The choice is independent of Restricted/Partial/Unrestricted**, which are
-only available after registration.
+The installer may suggest a default, but the user can change this flag on
+**any** Linux target. It is independent from the Restricted / Partial /
+Unrestricted privilege policy, which is only selectable after enrollment.
 
-The Connect/Disconnect commands do **not** rotate SSH keys, unregister the
-device, revoke access grants, or enable sudo. A local control script is now
-available at `scripts/device-connection.sh` and accepts one of
-`connect`, `disconnect`, `on-demand`, `persistent`, or `status`.
-Changing modes requires target-side administrator rights, not MCP sudo.
+**Do not confuse the flag with current connectivity:** a WSL instance can be
+connected while persistent=false, or a Raspberry Pi can be disconnected while
+persistent=true (e.g., powered off). Changing persistent from true to false
+should only disable automatic startup; it must **not** forcibly drop an
+existing SSH session.
 
-**Important:** when a device disconnects from its reverse tunnel, the
-Gateway cannot contact it to reconnect; local start on that Linux, a Windows
-shortcut/tray action, or a separately approved out-of-band mechanism is
-required. WSL systemd may restart its own SSH service **after** the distro
-starts, but does not wake the PC or start WSL automatically at Windows boot.
+The same preference should be readable and writable by MCP:
+
+- `device_connection_status(device_id)` — OAuth `gateway:read` plus
+  explicit device status grant. Returns both connected and persistent.
+- `set_device_persistent(device_id, persistent: bool)` — OAuth
+  `gateway:control` plus the independent device permission
+  `connection_manage`. The managed device must be connected and a
+  narrow root-owned helper must have been installed during local enrollment.
+  The helper only enables/disables the designated systemd tunnel service.
+
+The target's systemd enabled/disabled state is the authoritative flag, not
+a guessed property of the device type. When the target is unreachable the
+reported live flag is unknown (`null`), never assumed to be false.
+
+**Connect/Disconnect is separate from Persistent on/off.** Disconnecting
+the sole SSH tunnel makes the device unreachable to the Gateway, so the
+MCP cannot reconnect that device through its now-disconnected tunnel.
+Reconnection must originate locally (e.g. Windows shortcut, systemd start,
+tray app) or from a separately provisioned out-of-band agent. The existing
+local script `scripts/device-connection.sh` exposes connect, disconnect,
+persistent, on-demand and status, while the new narrow privileged helper is
+`scripts/ai-lab-device-connectionctl`.
+
+For WSL, persistent=true still only starts the tunnel **when WSL Linux is
+running**. It does not wake the Windows laptop or boot the distro by itself.
+
+**Deployment status:** the boolean model, MCP tool handlers, authorization
+checks and helper are committed but **not yet deployed** on the production
+Gateway/target sudo policy. Read-only status and fail-closed unit tests were
+validated on the WSL. Existing tunnel settings/keys stay untouched until
+explicit migration and deployment approval.
 
 ## On-demand access changes — exactly three radio buttons
 
@@ -157,7 +182,7 @@ duration validation, automatic expiry to Restricted, and regression tests.
 Pure domain logic exists in `src/ai_lab_gateway/access_profiles.py` and
 `tests/test_access_profiles.py`; this does NOT implement target-side sudo.
 
-B. **Restricted-first enrollment** — device installer with independent\nconnection preference (On-demand/Persistent), HTTPS pairing API,
+B. **Restricted-first enrollment** — device installer with a selectable\nPersistent true/false flag, HTTPS pairing API,
 short-lived one-use code, verified device identity, gateway-side registration,
 dedicated SSH trust and tunnel automation. The pairing API must force
 Restricted regardless of client input. Validate on a test Linux device.
@@ -171,7 +196,7 @@ D. **Approval experience** — exactly three radio controls during an
 elevation request, dropdown only for Partial, authenticated human
 confirmation, visible countdown, and immediate revoke option.
 
-E. **End-to-end acceptance** — add a fresh Linux with one setup command,\nverify manual Connect/Disconnect and auto-restart on a persistent server,
+E. **End-to-end acceptance** — add a fresh Linux with one setup command,\nverify manual Connect/Disconnect and auto-restart on a persistent device,
 prove it starts Restricted, request Partial for 15 minutes, validate access
 before/after expiry, revoke, try Unrestricted on a disposable test device,
 then ensure the existing Raspberry/WSL/Oracle devices are unaffected.
