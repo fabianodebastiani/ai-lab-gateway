@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from time import monotonic
 
 from .audit import AuditEvent, JsonlAuditLog
+from .connection_control import read_connection, update_persistent_flag, persistent_flag
 from .auth import VerifiedIdentity
 from .authz import AuthorizationPolicy, Principal
 from .registry import DeviceRegistry
@@ -69,6 +70,46 @@ class ControlPlane:
                 success=success,
                 duration_ms=duration_ms,
                 exit_code=result.exit_code if result else None,
+            ))
+
+    def device_connection_status(self, identity: VerifiedIdentity, device_id: str) -> dict:
+        """Inspect independent connection flag and live status over SSH."""
+        self._authorize(identity, device_id, "status", "gateway:read")
+        device = self.registry.get(device_id)
+        started = monotonic()
+        success = False
+        try:
+            status = read_connection(device).as_dict()
+            success = status["detail"] == "ok"
+            return status
+        finally:
+            self.audit.append(AuditEvent(
+                subject=identity.subject, device_id=device_id,
+                action="connection_status", success=success,
+                duration_ms=int((monotonic() - started) * 1000),
+            ))
+
+    def set_device_persistent(self, identity: VerifiedIdentity, device_id: str,
+                              persistent: bool) -> dict:
+        """Set per-target systemd flag. Requires a separate connection_manage grant.
+
+        Never runs general-purpose sudo; the target must provision a narrowly
+        whitelisted, root-owned helper during trusted initial enrollment.
+        """
+        self._authorize(identity, device_id, "connection_manage", "gateway:control")
+        persistent_flag(persistent)
+        device = self.registry.get(device_id)
+        started = monotonic()
+        success = False
+        try:
+            status = update_persistent_flag(device, persistent).as_dict()
+            success = True
+            return status
+        finally:
+            self.audit.append(AuditEvent(
+                subject=identity.subject, device_id=device_id,
+                action="connection_manage", success=success,
+                duration_ms=int((monotonic() - started) * 1000),
             ))
 
     def read_file(self, identity: VerifiedIdentity, device_id: str, path: str,
