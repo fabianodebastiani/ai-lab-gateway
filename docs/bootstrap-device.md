@@ -12,6 +12,22 @@ reverse port: 10001
 target user: ai-gateway
 ```
 
+## v2 enrollment policy (decision 2026-10-14)
+
+This document describes the **manual prototype** enrollment method.
+The v2 automatic enrollment installer and pairing endpoint are not yet
+implemented. When implemented, the operator confirms the device identity
+and pairing, but does **not** select an access profile during onboarding.
+Every new device is forced to **Restricted** by the server and device-side
+policy, regardless of installer input. The new management user has no
+general administrative sudo.
+
+Only **after successful pairing** may an operator separately request one of
+three access modes — Restricted, Unrestricted, or Partial — and only Partial
+shows the duration dropdown. This selection is managed per device, not
+embedded in SSH tunnel credentials. See [ADR-027](decisions.md) and
+[v2 enrollment and access specification](v2-device-onboarding-access.md).
+
 ## Credential model
 
 Two different key pairs are mandatory.
