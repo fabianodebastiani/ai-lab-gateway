@@ -88,3 +88,14 @@ independent approval UI is not implemented yet. The existing ChatGPT app may
 need its tool metadata refreshed to discover the four new MCP operations.
 
 See [Supervised privilege broker architecture and runbook](docs/privileged-broker.md).
+
+### Human approval website (provisioning pending)
+
+A separate password-and-TOTP human approval interface has been deployed at
+[https://gateway.debasti.com/approvals](https://gateway.debasti.com/approvals).
+It is **not enabled for sign-in until a human performs private credential
+enrollment in the Oracle terminal**. The UI runs as its own non-root service
+and can only approve or deny pending, whitelisted broker requests.
+
+See [docs/approval-web.md](docs/approval-web.md) for the setup, security
+model, troubleshooting, and acceptance procedure.
