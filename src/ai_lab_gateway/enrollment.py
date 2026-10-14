@@ -7,6 +7,7 @@ must be supplied by the control plane before production enrollment.
 from __future__ import annotations
 
 import base64
+from contextlib import closing
 import binascii
 import hashlib
 import os
@@ -45,7 +46,7 @@ def _validate_public_key(value: str) -> str:
 
 
 def _digest(token: str) -> str:
-    if not isinstance(token, str) or len(token) > 256:
+    if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43,64}", token):
         raise ValueError("invalid pairing token")
     return hashlib.sha256(token.encode("ascii")).hexdigest()
 
@@ -64,7 +65,7 @@ class EnrollmentStore:
         if not self.path.exists():
             fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             os.close(fd)
-        with self._db() as conn:
+        with closing(self._db()) as conn, conn:
             conn.execute("""CREATE TABLE IF NOT EXISTS invites (
                 token_hash TEXT PRIMARY KEY,
                 operator_subject TEXT NOT NULL,
@@ -92,7 +93,7 @@ class EnrollmentStore:
         moment = int(time.time()) if now is None else now
         token = secrets.token_urlsafe(32)
         digest = _digest(token)
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             db.execute("INSERT INTO invites (token_hash,operator_subject,created_at,"
                        "expires_at,state) VALUES (?,?,?,?,?)",
                        (digest, operator_subject, moment, moment+INVITE_TTL, "invited"))
@@ -118,7 +119,7 @@ class EnrollmentStore:
             raise ValueError("tunnel and host SSH identity must be distinct")
         now_value = int(time.time()) if now is None else now
         digest = _digest(token)
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT state,expires_at FROM invites WHERE token_hash=?", (digest,)
