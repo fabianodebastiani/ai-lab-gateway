@@ -153,3 +153,15 @@ whitespace during login; the generated password itself contains no whitespace.
 All **48 pytest tests passed** after the patch and the HTTPS approval endpoint
 was confirmed online. If login still fails, check the stored password carefully
 inside the password manager; do not paste secrets into chat or issue comments.
+
+## v0.5.4 Chrome login repair — 2026-10-14
+
+Real Chrome sessions rejected a form POST with `Origem ou rota inválida`
+before password verification. Login now uses a 10-minute random form CSRF
+token tied to a separate Secure, HttpOnly, SameSite=Strict login cookie.
+Absent Origin and Fetch Metadata headers no longer break same-origin login,
+but supplied cross-site Origin or Fetch-Site remain forbidden. Approval and
+denial still require authenticated session CSRF and per-decision TOTP.
+A fresh GET of `/approvals` is needed to obtain the new form and cookie.
+The Oracle deployment passed **50 pytest tests**; web, broker, and MCP remain
+active. A new human-browser attempt remains to be verified.
