@@ -374,8 +374,14 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         self._send(200, template("".join(blocks)))
 
     def do_POST(self):
-        if self.path not in (BASE + "/login", BASE + "/decision", BASE + "/logout") or not self._origin_ok():
-            self._bad("Origem ou rota inválida")
+        if self.path not in (BASE + "/login", BASE + "/decision", BASE + "/logout"):
+            self._bad("Rota do formulário não reconhecida")
+            return
+        if not self._origin_ok():
+            if self.headers.get("Host") != "gateway.debasti.com":
+                self._bad("Host da requisição não reconhecido")
+            else:
+                self._bad("Formato do formulário não reconhecido")
             return
         try:
             data = self._form()
