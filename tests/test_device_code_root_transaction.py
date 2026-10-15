@@ -134,6 +134,31 @@ class RealRootCandidateTransactionTests(unittest.TestCase):
         self.assertFalse(recover_candidate_root_transaction(self.paths))
         self.apply()
 
+    def test_abrupt_process_exit_after_first_root_write_is_recoverable(self):
+        """A real os._exit skips Python exception/finally rollback entirely."""
+        pid = os.fork()
+        if pid == 0:
+            try:
+                from ai_lab_gateway import device_code_root_transaction as tx
+                original = tx._replace
+                def exit_after_first(*args, **kwargs):
+                    original(*args, **kwargs)
+                    os._exit(137)
+                tx._replace = exit_after_first
+                self.apply()
+            except BaseException:
+                os._exit(90)
+            os._exit(91)
+        waited, status = os.waitpid(pid, 0)
+        self.assertEqual(waited, pid)
+        self.assertTrue(os.WIFEXITED(status))
+        self.assertEqual(os.WEXITSTATUS(status), 137)
+        self.assertIn(b"10003", self.auth.read_bytes())
+        self.assertEqual(self.known.read_bytes(), self.legacy_known)
+        self.assertTrue((self.journal / JOURNAL).exists())
+        self.assertTrue(recover_candidate_root_transaction(self.paths))
+        self.unchanged()
+
     def test_real_root_journal_survives_crash_after_second_write(self):
         with self.assertRaises(InterruptedRootTransaction):
             self.apply(test_interrupt_after=2)
