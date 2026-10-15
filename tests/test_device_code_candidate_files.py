@@ -13,6 +13,10 @@ from cryptography.hazmat.primitives import serialization
 from ai_lab_gateway.device_code import DeviceCodeStore
 from ai_lab_gateway.device_code_candidate import stage_lab_candidate
 from ai_lab_gateway.device_code_candidate_files import rehearse_mock_gateway_install
+from ai_lab_gateway.device_code_candidate_journal import (
+    apply_mock_gateway_transaction, recover_mock_gateway_transaction,
+    SimulatedProcessCrash, JOURNAL,
+)
 
 
 class SandboxSSHFileTests(unittest.TestCase):
@@ -165,6 +169,94 @@ class SandboxSSHFileTests(unittest.TestCase):
             rehearse_mock_gateway_install(
                 self.store, "../" + self.request, sandbox_root=self.sandbox,
                 independent_gateway_host_key=self.keys["gateway"][1])
+        self.unchanged()
+
+
+    def fragments(self):
+        candidate = self.sandbox / ("candidate-" + self.request)
+        return ((candidate / "tunnel-authorized_keys.append").read_bytes(),
+                (candidate / "gateway-known_hosts.append").read_bytes())
+
+    def test_durable_journal_recovery_after_first_file_crash(self):
+        self.stage()
+        authfrag, hostfrag = self.fragments()
+        with self.assertRaises(SimulatedProcessCrash):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=authfrag,
+                host_fragment=hostfrag, test_crash_after="first")
+        self.assertIn(b'permitlisten="127.0.0.1:10003"', self.auth.read_bytes())
+        self.assertEqual(self.known.read_bytes(), self.old_known)
+        journal = self.mock / JOURNAL
+        self.assertEqual(stat.S_IMODE(journal.stat().st_mode), 0o600)
+        with self.assertRaises(PermissionError):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=authfrag, host_fragment=hostfrag)
+        self.assertTrue(recover_mock_gateway_transaction(self.sandbox))
+        self.unchanged()
+        self.assertFalse(journal.exists())
+        self.assertFalse(recover_mock_gateway_transaction(self.sandbox))
+        self.rehearse()  # a clean retry is safe after explicit recovery
+
+    def test_durable_journal_recovery_after_both_files_changed(self):
+        self.stage()
+        authfrag, hostfrag = self.fragments()
+        with self.assertRaises(SimulatedProcessCrash):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=authfrag,
+                host_fragment=hostfrag, test_crash_after="second")
+        self.assertIn(b'permitlisten="127.0.0.1:10003"', self.auth.read_bytes())
+        self.assertIn(b"[127.0.0.1]:10003", self.known.read_bytes())
+        self.assertTrue(recover_mock_gateway_transaction(self.sandbox))
+        self.unchanged()
+        self.assertEqual(self.external_marker.read_text(), "preserve-me")
+
+    def test_outside_change_after_crash_causes_fail_closed_recovery(self):
+        self.stage()
+        authfrag, hostfrag = self.fragments()
+        with self.assertRaises(SimulatedProcessCrash):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=authfrag,
+                host_fragment=hostfrag, test_crash_after="first")
+        self.known.write_bytes(b"independent admin change\n")
+        with self.assertRaises(PermissionError):
+            recover_mock_gateway_transaction(self.sandbox)
+        self.assertEqual(self.known.read_bytes(), b"independent admin change\n")
+        self.assertTrue((self.mock / JOURNAL).exists())
+        self.assertIn(b"10003", self.auth.read_bytes())
+        self.assertEqual(self.external_marker.read_text(), "preserve-me")
+
+    def test_normal_commit_has_no_recovery_pending(self):
+        self.stage()
+        self.rehearse()
+        self.assertFalse((self.mock / JOURNAL).exists())
+        self.assertFalse(recover_mock_gateway_transaction(self.sandbox))
+        self.assertIn(b"10002", self.auth.read_bytes())
+        self.assertIn(b"10003", self.auth.read_bytes())
+
+    def test_corrupt_journal_blocks_install_and_refuses_recovery(self):
+        self.stage()
+        frag1, frag2 = self.fragments()
+        journal = self.mock / JOURNAL
+        journal.write_text('{"not":"a verified journal"}')
+        journal.chmod(0o600)
+        with self.assertRaises(PermissionError):
+            recover_mock_gateway_transaction(self.sandbox)
+        with self.assertRaises(PermissionError):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=frag1, host_fragment=frag2)
+        self.unchanged()
+
+    def test_mock_transaction_rejects_traversal_and_other_port(self):
+        self.stage()
+        frag1, frag2 = self.fragments()
+        with self.assertRaises(PermissionError):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=frag1.replace(b"10003", b"10002"),
+                host_fragment=frag2)
+        with self.assertRaises(PermissionError):
+            apply_mock_gateway_transaction(
+                self.sandbox, auth_fragment=frag1,
+                host_fragment=frag2.replace(b"10003", b"10002"))
         self.unchanged()
 
 
