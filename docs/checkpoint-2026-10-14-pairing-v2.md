@@ -153,7 +153,7 @@ Contém **15 arquivos** (14 componentes + instalador).
 Foi conferido o SHA-256 do instalador na Oracle em 14/10/2026:
 
 ```text
-058061a8831292038c068f2368d6371eedb709986211397de2e8fd611aa318ce
+1be09a37a0a558f951750d265103387e61f050c1d76733aba098b6afc629f18b
 ```
 
 O instalador deveria ser copiado sob `/root/ai-lab-v2-rollout/`
@@ -227,3 +227,8 @@ e registrar o novo hash** antes de qualquer instrução de execução.
 **Primeira frase recomendada para retomar:** "Retomemos o AI Lab Gateway v2
 pelo checkpoint de 14/10. Ainda não instalei nada na Oracle." Confirmar essa
 última afirmação se algo tiver mudado fora do chat.
+
+
+## Adendo — retomada 15/10/2026
+
+O instalador Oracle foi reforçado com pré-verificação da política real de autorização e da rota Caddy proposta **antes** de qualquer mudança. A nova configuração Caddy foi validada em modo de teste sem gravar produção. O script preparado em `/home/ai-maintenance/ai-lab-v2-rollout/` foi atualizado e teve o novo SHA-256 registrado acima. O operador ainda não fez a instalação administrativa; a próxima etapa é o `--check` como `ubuntu` e somente depois o `--apply` se todas as validações forem satisfatórias.
