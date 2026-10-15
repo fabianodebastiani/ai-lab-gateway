@@ -94,8 +94,11 @@ def _challenge(*, request_id: str, device_id: str, nonce: str,
 def _display_confirm(challenge: bytes) -> str:
     # Human compares this compact fingerprint across *both* channels.
     h = hashlib.sha256(b"ai-lab-device-code-confirm-v1\x00" + challenge).digest()
-    c = base64.b32encode(h[:5]).decode("ascii")
-    return c[:4] + "-" + c[4:]
+    # OpenSSH/Crockford-friendly alphabet: no I, O, 0 or 1.
+    b32 = base64.b32encode(h[:5]).decode("ascii")
+    standard = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    safe = "".join(CODE_ALPHABET[standard.index(letter)] for letter in b32)
+    return safe[:4] + "-" + safe[4:]
 
 
 class DeviceCodeStore:
