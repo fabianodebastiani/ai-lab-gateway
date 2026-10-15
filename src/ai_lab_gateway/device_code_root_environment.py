@@ -36,14 +36,23 @@ def protected_file(path: Path, *, owner_uid: int, modes: frozenset[int],
     if (type(owner_uid) is not int or owner_uid < 0
             or not isinstance(modes, frozenset) or not modes):
         raise ValueError("invalid local file trust policy")
-    info = Path(path).lstat()
-    if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid
-            or stat.S_IMODE(info.st_mode) not in modes or info.st_nlink != 1):
-        raise PermissionError("trusted source file ownership or type mismatch")
-    with open(path, "rb", buffering=0) as fp:
-        if os.fstat(fp.fileno()).st_ino != info.st_ino:
-            raise PermissionError("trusted source changed during read")
-        raw = fp.read(limit + 1)
+    path = Path(path)
+    parent = path.parent.lstat()
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != owner_uid
+            or stat.S_IMODE(parent.st_mode) & 0o022):
+        raise PermissionError("untrusted SSH source directory")
+    # O_NOFOLLOW and checking fstat on the open descriptor, not only lstat,
+    # prevent a symlink swap from changing what root actually reads.
+    fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid
+                or stat.S_IMODE(info.st_mode) not in modes or info.st_nlink != 1):
+            raise PermissionError("trusted source file ownership or type mismatch")
+        with os.fdopen(fd, "rb", closefd=False) as fp:
+            raw = fp.read(limit + 1)
+    finally:
+        os.close(fd)
     if len(raw) > limit:
         raise PermissionError("trusted source too large")
     return raw
