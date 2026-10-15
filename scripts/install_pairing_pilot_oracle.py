@@ -102,7 +102,7 @@ def verify_stage():
         with os.fdopen(check_fd, "wb") as stream:
             stream.write(proposed_caddy)
         os.chmod(check_name, 0o600)
-        run("/usr/bin/caddy", "validate", "--config", check_name)
+        run("/usr/bin/caddy", "validate", "--config", check_name, "--adapter", "caddyfile")
     finally:
         os.unlink(check_name)
     current = run("/usr/bin/systemctl", "is-active", *SERVICES)
