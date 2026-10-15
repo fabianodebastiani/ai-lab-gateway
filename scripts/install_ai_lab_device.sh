@@ -5,8 +5,8 @@
 # Production Gateway endpoint /pairing/device/start is NOT deployed yet.
 set -eu
 
-RELEASE_COMMIT="f8f699282fef6b65915bc798198f1c414c2d1eea"
-CLIENT_SHA256="79e24afe3983bb88e2aada93b2183a29a8f708628b3036d09176b49831275546"
+RELEASE_COMMIT="536f5e1ce5fa885d9aa1d757182a01c10d751ae5"
+CLIENT_SHA256="c25b3ad332c439e49aa9946cd0fd1330c68b979ed34237a6665e88627f8594d3"
 CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${RELEASE_COMMIT}/scripts/device_code_pair_linux.py"
 
 if [ "$(uname -s)" != "Linux" ]; then
