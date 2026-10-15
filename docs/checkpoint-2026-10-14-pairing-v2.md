@@ -232,3 +232,29 @@ pelo checkpoint de 14/10. Ainda não instalei nada na Oracle." Confirmar essa
 ## Adendo — retomada 15/10/2026
 
 O instalador Oracle foi reforçado com pré-verificação da política real de autorização e da rota Caddy proposta **antes** de qualquer mudança. A nova configuração Caddy foi validada em modo de teste sem gravar produção. O script preparado em `/home/ai-maintenance/ai-lab-v2-rollout/` foi atualizado e teve o novo SHA-256 registrado acima. O operador ainda não fez a instalação administrativa; a próxima etapa é o `--check` como `ubuntu` e somente depois o `--apply` se todas as validações forem satisfatórias.
+
+
+## Atualização operacional — 15/10/2026, após o primeiro deploy
+
+**Este adendo substitui o status operacional antigo de `--apply` não executado
+para o dia 15/10; o histórico do encerramento de 14/10 acima permanece válido.**
+
+- O operador `ubuntu` copiou o bundle para `/root/ai-lab-v2-rollout/`,
+  verificou o SHA do instalador e concluiu `--check` com
+  `BUNDLE_SHA256_VERIFIED; services active; no changes`.
+- `--apply` foi executado e **falhou** na checagem de
+  `http://127.0.0.1:8002/pairing/health` (curl status 7).
+  Backup: `/var/backups/ai-lab-gateway/pairing-v2-20261015T033754Z`.
+  Instalador informou `ROLLBACK_ATTEMPTED`.
+- Verificação independente pós-rollback via MCP confirmou quatro serviços
+  originais ativos (gateway, broker, approval-web, caddy), HTTPS Auth0/painel
+  respondendo, `oracle-gateway` SSH `exec()` funcionando, e pareamento
+  v2 ausente/desativado. O Raspberry voltou a responder; WSL permanece
+  desconectado. Não repetir `--apply` sem descobrir a causa root.
+- O projeto continua com mesmo escopo: enrollment Restrito, depois elevação
+  separada Restrito/Parcial/Irrestrito; persistência independente por dispositivo.
+- Para evitar repetição de comandos root, foi implementada e testada no Git
+  uma **operação fixa de leitura do journal do pairing**, dependente de
+  aprovação humana no broker atual. Ainda não implantada: consultar
+  [runbook dedicado](broker-pairing-journal-rollout.md). **Não** concede
+  `sudo` irrestrito a `ai-maintenance`.
