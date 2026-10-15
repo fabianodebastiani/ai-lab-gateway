@@ -112,7 +112,16 @@ def device_code_handler(store: DeviceCodeStore, *, quota: PeerQuota | None = Non
                 return
             try:
                 data = json.loads(self.rfile.read(int(length)))
-                if not isinstance(data, dict) or set(data) != fields:
+                if not isinstance(data, dict):
+                    raise ValueError("unexpected payload")
+                if self.path == "/pairing/device/prove":
+                    # Both signatures are valid alternatives but must never
+                    # coexist or introduce an unexpected request field.
+                    accepted = (frozenset({"request_id","device_secret","signature_b64"}),
+                                frozenset({"request_id","device_secret","sshsig"}))
+                    if frozenset(data) not in accepted:
+                        raise ValueError("invalid signature fields")
+                elif set(data) != fields:
                     raise ValueError("unexpected fields")
                 if self.path == "/pairing/device/start":
                     result = store.start(
