@@ -74,6 +74,16 @@ serviços v1 ativos; o WSL foi registrado **offline na última checagem**
 e pode voltar pelo túnel sob demanda. **Não apagar as credenciais
 antigas** antes da validação integral da substituição.
 
+### Atualização em 15/10/2026
+
+O bundle de pareamento v2 foi **tentado** pela primeira vez na Oracle em
+15/10/2026. A instalação falhou no health check da porta 8002; o instalador
+executou rollback e os quatro serviços v1 permanecem operacionais, inclusive
+o SSH local da Oracle pelo MCP. A causa da falha está em investigação; **não
+repetir o `--apply` sem diagnóstico**. O plano ADR-027/028 permanece
+inalterado. Ver [checkpoint com adendo](docs/checkpoint-2026-10-14-pairing-v2.md)
+e [diagnóstico supervisionado do broker](docs/broker-pairing-journal-rollout.md).
+
 ## Implementation map
 
 Current live/repository state is tracked in
