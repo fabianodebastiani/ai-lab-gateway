@@ -74,15 +74,36 @@ def _sync_folder(path: Path) -> None:
         os.close(fd)
 
 
-def prepare_wsl_management_identity(*, group_gid: int, base: Path = BASE) -> dict:
+def _derive_as_gateway(path: Path, *, gateway_uid: int,
+                       gateway_gid: int) -> str:
+    """Derive with the exact unprivileged SSH-client identity.
+
+    A root-owned 0640 private key is intentionally group-readable.
+    OpenSSH refuses it when invoked as its *owner* (root); checking as the
+    gateway UID both verifies usable group access and SSH's safe-key policy.
+    No private bytes appear in subprocess output.
+    """
+    if (type(gateway_uid) is not int or gateway_uid <= 0
+            or type(gateway_gid) is not int or gateway_gid < 0):
+        raise PermissionError("refusing root or untrusted key reader identity")
+    result = subprocess.run(
+        ["/usr/bin/setpriv", "--reuid", str(gateway_uid),
+         "--regid", str(gateway_gid), "--clear-groups",
+         "/usr/bin/ssh-keygen", "-y", "-P", "", "-f", str(path)],
+        check=True, capture_output=True, text=True, timeout=7)
+    return _validate_public_key(result.stdout.strip())
+
+
+def prepare_wsl_management_identity(*, group_gid: int, gateway_uid: int, base: Path = BASE) -> dict:
     """Explicit root-only operator action; does not enroll anything.
 
     Production callers use BASE, never a request-supplied directory. Tests
     inject a disposable root-owned folder to exercise ownership as UID 0.
     """
     _require_root()
-    if type(group_gid) is not int or group_gid < 0:
-        raise PermissionError("invalid protected gateway group")
+    if (type(group_gid) is not int or group_gid < 0
+            or type(gateway_uid) is not int or gateway_uid <= 0):
+        raise PermissionError("invalid protected gateway identity")
     base = Path(base)
     _trusted_root_dir(base, group_gid=group_gid)
     destination = base / PILOT
@@ -114,10 +135,8 @@ def prepare_wsl_management_identity(*, group_gid: int, base: Path = BASE) -> dic
                 os.chmod(candidate, 0o640)
             actual_pub = _validate_public_key(
                 _file(pub, group_gid=group_gid).decode("ascii").strip())
-            derived = subprocess.run(
-                ["/usr/bin/ssh-keygen", "-y", "-P", "", "-f", str(key)],
-                check=True, capture_output=True, text=True, timeout=7)
-            if _validate_public_key(derived.stdout.strip()) != actual_pub:
+            if _derive_as_gateway(
+                    key, gateway_uid=gateway_uid, gateway_gid=group_gid) != actual_pub:
                 raise PermissionError("private/public candidate identity mismatch")
             _sync_folder(tmp)
             # root-controlled base is not group-writable. No other UID
@@ -143,7 +162,8 @@ def prepare_wsl_management_identity(*, group_gid: int, base: Path = BASE) -> dic
         os.close(lock)
 
 
-def verify_wsl_management_identity(*, group_gid: int, base: Path = BASE) -> str:
+def verify_wsl_management_identity(*, group_gid: int, gateway_uid: int,
+                                   base: Path = BASE) -> str:
     """Return only the checked public key; never disclose private material."""
     _require_root()
     base = Path(base)
@@ -153,9 +173,7 @@ def verify_wsl_management_identity(*, group_gid: int, base: Path = BASE) -> str:
     pub = _validate_public_key(
         _file(target / PUBLIC, group_gid=group_gid).decode("ascii").strip())
     _file(target / PRIVATE, group_gid=group_gid)
-    derived = subprocess.run(
-        ["/usr/bin/ssh-keygen", "-y", "-P", "", "-f", str(target / PRIVATE)],
-        check=True, capture_output=True, text=True, timeout=7)
-    if _validate_public_key(derived.stdout.strip()) != pub:
+    if _derive_as_gateway(
+            target / PRIVATE, gateway_uid=gateway_uid, gateway_gid=group_gid) != pub:
         raise PermissionError("candidate management keypair differs")
     return pub
