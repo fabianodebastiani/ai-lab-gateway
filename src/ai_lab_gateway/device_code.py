@@ -448,6 +448,39 @@ class DeviceCodeStore:
             db.commit()
         return {"request_id":request_id,"status":"denied"}
 
+    def approved_candidate_snapshot(self, *, request_id: str,
+                                    now: int | None = None) -> dict:
+        """Internal read for a *separately authorized* provisioner only.
+
+        NOT an HTTP/MCP operation. The root-owned integration must enforce
+        caller UID and policy at its own protected boundary. This query is
+        merely the last database-state and expiry check, not an authorization
+        to run as root or to stage public offers.
+        """
+        if not isinstance(request_id, str) or not re.fullmatch(
+                r"[A-Za-z0-9_-]{24,64}", request_id):
+            raise PermissionError("invalid provisioning request")
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db:
+            row = db.execute(
+                "SELECT request_id,device_id,tunnel_public_key,host_public_key,"
+                "persistent,state,expires_at,proven_at,reviewed_at,"
+                "operator_subject,provision_state FROM sessions WHERE request_id=?",
+                (request_id,)).fetchone()
+            offered = db.execute(
+                "SELECT 1 FROM connection_offers WHERE request_id=?",
+                (request_id,)).fetchone()
+        if (row is None or row["state"] != "approved"
+                or row["expires_at"] <= moment
+                or row["proven_at"] is None or row["reviewed_at"] is None
+                or not row["operator_subject"]
+                or row["provision_state"] != "not_provisioned"
+                or offered is not None):
+            raise PermissionError("no approved, unexpired, unprovisioned device")
+        return {name: row[name] for name in (
+            "request_id", "device_id", "tunnel_public_key",
+            "host_public_key", "persistent", "expires_at")}
+
     def stage_connection_offer(
             self, *, request_id: str, offer: dict,
             trusted_gateway_host_public_key: str,
