@@ -83,6 +83,21 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(call.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
 
+    def test_plain_text_health_is_accepted_only_for_approved_endpoint(self):
+        from types import SimpleNamespace
+        with patch.object(self.m, "run", return_value=SimpleNamespace(stdout="ok\\n")):
+            self.assertEqual(
+                self.m.wait_for_health("https://gateway.debasti.com/approvals/health",
+                                       plain_ok=True, timeout_seconds=1),
+                {"status": "ok"}
+            )
+        with patch.object(self.m, "run", return_value=SimpleNamespace(stdout="ok\\n")), patch.object(
+            self.m.time, "monotonic", side_effect=[0, 2]
+        ), patch.object(self.m.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+                self.m.wait_for_health("https://gateway.debasti.com/pairing/health",
+                                       timeout_seconds=1)
+
     def test_health_timeout_is_finite_and_fails_closed(self):
         import subprocess
         with patch.object(self.m, "run", side_effect=subprocess.CalledProcessError(
