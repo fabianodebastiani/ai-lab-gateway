@@ -1,14 +1,19 @@
 """Non-root Linux-side SSH public offer acceptance: fail closed and no install."""
 import importlib.util
+import base64
 import json
 from pathlib import Path
 import stat
 import subprocess
 import tempfile
 import unittest
+import urllib.request
 import threading
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from cryptography.hazmat.primitives import serialization
+from ai_lab_gateway.device_code import DeviceCodeStore
+from ai_lab_gateway.device_code_http import run_device_code_server
 
 
 CLI_PATH = Path(__file__).resolve().parents[1] / "scripts" / "device_code_pair_linux.py"
@@ -164,6 +169,50 @@ class LinuxSSHOfferTests(unittest.TestCase):
                         client.post(base, "/pairing/device/poll",
                                     {"device_secret": "do-not-forward"})
                 self.assertEqual(visited, [("POST", "/pairing/device/poll")] * 5)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+
+
+    def test_approved_offer_reaches_linux_validator_over_real_loopback_http(self):
+        """Full laboratory HTTP polling, still no SSH installer or root action."""
+        store = DeviceCodeStore(self.root / "offer.sqlite", hmac_key=b"L" * 32)
+        started = store.start(
+            device_id=self.dev, display_name="Linux offer lab",
+            source_id="127.0.0.1", persistent=False,
+            tunnel_public_key=self.keys["device_tunnel"],
+            host_public_key=self.keys["device_host"])
+        private = serialization.load_ssh_private_key(
+            (self.root / "device_tunnel").read_bytes(), password=None)
+        proof = base64.b64encode(
+            private.sign(base64.b64decode(started["challenge_b64"]))).decode("ascii")
+        store.prove(request_id=started["request_id"],
+                    device_secret=started["device_secret"], signature_b64=proof)
+        store.lookup(user_code=started["user_code"],
+                     operator_subject="auth0|test-person")
+        store.confirm(request_id=started["request_id"],
+                      operator_subject="auth0|test-person",
+                      confirmation=started["confirmation"])
+        offer = {**self.offer, "request_id": started["request_id"]}
+        store.stage_connection_offer(
+            request_id=started["request_id"], offer=offer,
+            trusted_gateway_host_public_key=self.keys["gateway_host"],
+            provisioner_verified=True)
+        with run_device_code_server(store) as server:
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                origin = "http://127.0.0.1:" + str(server.server_port)
+                polled = client.post(origin, "/pairing/device/poll", {
+                    "request_id": started["request_id"],
+                    "device_secret": started["device_secret"]})
+                self.assertEqual(polled["status"], "approved")
+                self.assertEqual(client.validate_poll_response(
+                    polled, request_id=started["request_id"],
+                    device_id=self.dev, persistent=False,
+                    tunnel_key=self.keys["device_tunnel"],
+                    host_key=self.keys["device_host"],
+                    trusted_gateway_host_key=self.keys["gateway_host"]), offer)
             finally:
                 server.shutdown()
                 worker.join(timeout=3)
