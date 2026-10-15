@@ -258,3 +258,59 @@ para o dia 15/10; o histórico do encerramento de 14/10 acima permanece válido.
   aprovação humana no broker atual. Ainda não implantada: consultar
   [runbook dedicado](broker-pairing-journal-rollout.md). **Não** concede
   `sudo` irrestrito a `ai-maintenance`.
+
+
+## Adendo final — 15/10/2026 04:16 UTC: v2 server instalado com sucesso
+
+**Estado mais recente prevalece sobre os relatos históricos acima.**
+O administrador `ubuntu` concedeu explicitamente uma janela de
+`sudo` de 60 minutos para o usuário operacional `ai-maintenance`.
+O timer systemd root-owned `ai-lab-maintenance-60m-revoke.timer`
+está ativo, com disparo em **2026-10-15 05:08:04 UTC**; a revogação
+não desfaz alterações permanentes efetuadas durante a janela.
+MCP confirmou `sudo -n id -u` = 0 e a continuidade dos serviços
+originais. Acesso de recuperação `ubuntu` foi mantido.
+
+Diagnóstico da instalação v2:
+1. Journal completo da tentativa anterior indicou que o novo serviço
+   iniciou e criou SQLite, mas health check da porta 8002 falhou
+   muito cedo. Teste de serviço isolado, reproduzindo os sockets
+   Unix reais, respondeu HTTP 200, sem alterações no Gateway v1.
+2. Instalador revisado para usar retries de health por 30 segundos.
+   A segunda tentativa passou local/HTTPS pairing, mas revelou que
+   o health check do painel antigo retorna texto `ok`, não JSON;
+   rollback ocorreu conforme previsto.
+3. Corrigido parse da saúde do painel; 8 testes do instalador passaram
+   e `--check` passou sem alterações. Script final SHA-256:
+   `0bbef6572989ab5d7c14f4e38a4d31e62b2536ffafefb73638c09fdc7fa4a7ff`.
+4. Terceira tentativa via `systemd-run` independente concluiu com
+   `PAIRING_PILOT_DEPLOYED` e todos os health checks OK.
+   Backup: `/var/backups/ai-lab-gateway/pairing-v2-20261015T041535Z`.
+
+Pós-deploy:
+- `ai-lab-pairing.service`, ambos sockets, MCP, broker, approvals
+  e Caddy estão ativos.
+- O serviço de pareamento roda como usuário próprio não-root,
+  `NoNewPrivileges=yes`; DB 0600, diretório 0700.
+  Sockets de MCP e aprovador têm grupos distintos, modo 0660,
+  nenhum acessível diretamente por `ai-maintenance` (EACCES).
+- Há exatamente um grant `device_enroll` na política protegida,
+  sem expor identidade de operador.
+- Oracle SSH e Raspberry online via MCP; WSL continua offline,
+  e não houve rotação das chaves de nenhum dispositivo existente.
+- **Servidor v2 instalado não equivale a onboarding completo.**
+  Falta provisionamento SSH real pós-aprovação, instalador local
+  Linux, teste de WSL/VM candidato, e aplicação remota da política
+  Restrito/Parcial/Irrestrito.
+- A conexão ChatGPT poderá precisar renovar descoberta OAuth/MCP
+  para exibir `pairing_invite`, `pairing_requests` e
+  `pairing_status`.
+- O broker fixo de diagnóstico `pairing-service-journal` foi
+  criado e testado no Git, mas **não** foi implantado; não
+  é mais necessário para o troubleshooting atual com sudo temporário.
+
+Próximo passo: confirmar ferramentas de onboarding pelo MCP, testar
+o fluxo de convite em ambiente de teste e construir o provisionador
+SSH completo com isolamento e rollback. Preservar v1 até
+aceitação ponta a ponta. **Não repetir o instalador --apply
+na instalação v2 agora ativa.**
