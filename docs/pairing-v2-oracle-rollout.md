@@ -50,12 +50,12 @@ No terminal SSH/console conectado à Oracle usando a conta administrativa
 ```bash
 sudo install -d -o root -g root -m 0700 /root/ai-lab-v2-rollout
 sudo find /home/ai-maintenance/ai-lab-v2-rollout -maxdepth 1 -type f -exec cp -t /root/ai-lab-v2-rollout -- {} +
-sudo chown root:root /root/ai-lab-v2-rollout/*
-sudo chmod 0600 /root/ai-lab-v2-rollout/*
+sudo find /root/ai-lab-v2-rollout -maxdepth 1 -type f -exec chown root:root -- {} +
+sudo find /root/ai-lab-v2-rollout -maxdepth 1 -type f -exec chmod 0600 -- {} +
 sudo sha256sum /root/ai-lab-v2-rollout/install_pairing_pilot_oracle.py
 ```
 
-**Compare** o hash exibido ao valor acima. Se não coincidir, pare e não execute.
+**Compare** o hash exibido ao valor acima. Se não coincidir, pare e não execute.\nAs duas chamadas `find` em `/root` são intencionais: evitam que o shell\ndo usuário `ubuntu` tente expandir um `*` sem permissão de leitura.\n\n**Fase 1:** execute somente este bloco de preparação e o `--check`.\nEnvie a saída do `--check` antes de seguir para a **fase 2** (`--apply`).
 
 Em seguida:
 
