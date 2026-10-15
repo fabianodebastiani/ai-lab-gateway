@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Experimental Linux device-code pairing CLI (ADR-029, NOT installed/live).
 
-A fresh Linux device needs Python 3.10+, OpenSSH ssh-keygen/sshd and the
-python3-cryptography package in this prototype. All HTTPS requests are
+A fresh Linux device needs Python 3.10+ and OpenSSH ssh-keygen only for
+this handshake. No Python third-party cryptography is required on the target. All HTTPS requests are
 outbound; no existing Gateway SSH connection, device account, or sudo is used.
 The CLI ONLY creates a pending, proven device session and polls its state.
 It CANNOT approve, activate, install systemd, or grant Linux permissions.
@@ -27,14 +27,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
 VERSION = "ai-lab-device-code-v1"
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{2,47}$")
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$")
-HOST_KEY = Path("/etc/ssh/ssh_host_ed25519_key.pub")
+HOST_KEY = None  # generated per-device locally unless --host-key is explicitly provided
 MAX_REPLY = 4096
 POLL_SECONDS = 5
 
@@ -82,32 +79,44 @@ def owned_private_dir(path: Path):
         raise PermissionError("private key directory must be mode 0700, owned by current user")
 
 
-def local_keys(state_dir: Path, *, host_key_path: Path = HOST_KEY):
+def _generate_identity(path: Path, *, comment: str) -> str:
+    """Create/reuse Ed25519 identity only inside a private state directory."""
+    pub = Path(str(path) + ".pub")
+    if not path.exists() and not pub.exists() and not path.is_symlink() and not pub.is_symlink():
+        subprocess.run(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+             "-f", str(path), "-C", comment],
+            timeout=20, check=True, capture_output=True)
+        path.chmod(0o600)
+        pub.chmod(0o600)
+    if (path.is_symlink() or pub.is_symlink() or not path.is_file() or not pub.is_file()):
+        raise PermissionError("missing, partial or symlinked Ed25519 identity")
+    for file in (path, pub):
+        st = file.stat()
+        if st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != 0o600:
+            raise PermissionError("device identity must be owner-only 0600")
+    return ed25519_public(pub.read_text(encoding="ascii"))
+
+
+def local_keys(state_dir: Path, *, host_key_path: Path | None = HOST_KEY):
     if os.geteuid() == 0:
         raise PermissionError("pairing must run as an unprivileged Linux user")
     owned_private_dir(state_dir.parent)
     owned_private_dir(state_dir)
-    if not host_key_path.is_file() or host_key_path.is_symlink():
-        raise FileNotFoundError("OpenSSH server host Ed25519 public key is missing")
-    host = ed25519_public(host_key_path.read_text(encoding="ascii"))
     private = state_dir / "tunnel-ed25519"
-    pub = Path(str(private) + ".pub")
-    if not private.exists() and not pub.exists():
-        subprocess.run(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(private),
-             "-C", "ai-lab-device-code"],
-            timeout=20, check=True, capture_output=True)
-        private.chmod(0o600)
-        pub.chmod(0o600)
-    elif (private.is_symlink() or pub.is_symlink()
-            or not private.is_file() or not pub.is_file()):
-        raise PermissionError("partial or symlinked keypair; refusing to overwrite")
-    if (private.stat().st_uid != os.geteuid()
-            or stat.S_IMODE(private.stat().st_mode) != 0o600):
-        raise PermissionError("candidate SSH private key must be owner-only 0600")
-    tunnel = ed25519_public(pub.read_text(encoding="ascii"))
+    tunnel = _generate_identity(private, comment="ai-lab-device-code-tunnel")
+    if host_key_path is None:
+        # The fresh target need not have root access or a running sshd yet.
+        # A dedicated host identity is created locally for later provisioning.
+        host = _generate_identity(state_dir / "host-ed25519",
+                                  comment="ai-lab-device-code-host")
+    else:
+        if not host_key_path.is_file() or host_key_path.is_symlink():
+            raise FileNotFoundError("provided host Ed25519 public key is missing")
+        host = ed25519_public(host_key_path.read_text(encoding="ascii"))
+    if tunnel == host:
+        raise ValueError("tunnel and host SSH identities must be independent")
     return private, tunnel, host
-
 
 def post(url: str, path: str, data: dict) -> dict:
     endpoint = base_url(url) + path
@@ -130,7 +139,6 @@ def post(url: str, path: str, data: dict) -> dict:
 
 def validate_challenge(reply: dict, *, device_id: str,
                        persistent: bool, tunnel: str, host: str):
-    from datetime import datetime, timezone
     if (reply.get("status") != "pending" or reply.get("access_mode") != "restricted"
             or reply.get("persistent") is not persistent
             or not isinstance(reply.get("request_id"), str)
@@ -183,14 +191,20 @@ def run(*, url: str, device_id: str, name: str, persistent: bool,
     })
     challenge = validate_challenge(started, device_id=device_id, persistent=persistent,
                                    tunnel=tunnel, host=host)
-    material = serialization.load_ssh_private_key(private.read_bytes(), password=None)
-    if not isinstance(material, Ed25519PrivateKey):
-        raise ValueError("unexpected SSH private key type")
-    signature = base64.b64encode(material.sign(challenge)).decode("ascii")
+    # OpenSSH's SSHSIG signs the canonical gateway challenge using only
+    # ssh-keygen; no Python cryptography dependency is needed on Linux.
+    signed = subprocess.run(
+        ["ssh-keygen", "-Y", "sign", "-n", "ai-lab-gateway-device-code",
+         "-f", str(private)],
+        input=challenge, capture_output=True, timeout=20, check=True)
+    armor = signed.stdout.decode("ascii")
+    if (len(armor) > 2048 or not armor.startswith("-----BEGIN SSH SIGNATURE-----")
+            or not armor.strip().endswith("-----END SSH SIGNATURE-----")):
+        raise ValueError("unexpected OpenSSH signature response")
     verified = post(target_url, "/pairing/device/prove", {
         "request_id": started["request_id"],
         "device_secret": started["device_secret"],
-        "signature_b64": signature,
+        "sshsig": armor,
     })
     if (verified.get("status") != "proven"
             or verified.get("request_id") != started["request_id"]
