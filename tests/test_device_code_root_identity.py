@@ -19,6 +19,9 @@ class RootCandidateIdentityTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="ai-lab-identity-CI-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        # Model a world-traversable /etc; the candidate subtree stays 0750.
+        self.root.chmod(0o755)
+        self.gateway_uid = 21320
         self.group_gid = 21321
         self.base = self.root / "only-identity"
         self.base.mkdir(mode=0o750)
@@ -28,7 +31,7 @@ class RootCandidateIdentityTests(unittest.TestCase):
 
     def prepare(self):
         return prepare_wsl_management_identity(
-            group_gid=self.group_gid, base=self.base)
+            group_gid=self.group_gid, gateway_uid=self.gateway_uid, base=self.base)
 
     def test_root_creates_independent_atomic_keypair_only_once(self):
         result = self.prepare()
@@ -49,7 +52,7 @@ class RootCandidateIdentityTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(info.st_mode), 0o640)
         self.assertIn("BEGIN OPENSSH PRIVATE KEY", (dest / PRIVATE).read_text())
         self.assertEqual(verify_wsl_management_identity(
-            group_gid=self.group_gid, base=self.base), result["public_key"])
+            group_gid=self.group_gid, gateway_uid=self.gateway_uid, base=self.base), result["public_key"])
         self.assertEqual(self.legacy.read_text(), "old identity preserved")
         with self.assertRaises(FileExistsError):
             self.prepare()
