@@ -252,3 +252,48 @@ Para um dispositivo virgem futuro, ainda falta um instalador
 autossuficiente de pré-requisitos (conta Linux/sshd/systemd),
 distribuição autenticada do material público e ativação totalmente
 automatizada sem SSH anterior.
+
+
+### WSL reconectado e candidato preparado — 15/10/2026 04:49 UTC
+
+O operador reiniciou localmente o serviço v1; o MCP voltou a executar
+comandos no WSL como `ai-gateway`. O listener antigo
+`127.0.0.1:10002` voltou; a unidade permanece **active/disabled**
+(sob demanda). O serviço SSH local está ativo.
+
+Usando a conexão antiga **somente como canal de desenvolvimento**,
+o MCP copiou `scripts/ai-lab-device-pair-v2.py` para
+`/home/ai-gateway/ai-lab-device-pair-v2.py` e executou `prepare`.
+Uma identidade de túnel **nova e independente** foi gerada em
+`/home/ai-gateway/.ssh/ai-lab-v2/tunnel-windows-wsl-ed25519`
+(mode 0600; diretório 0700). Fingerprints para comparação humana:
+
+- novo túnel v2: `SHA256:WNQwcglksL5gtUlmVKWv1rByzFlJbffK1ZJeqbM8EPo`;
+- chave SSH de host WSL existente: `SHA256:hh1guyo4yOa81Qj0zrf+XZlNpwaMlH0BfDAdo0SGwCw`.
+
+HTTPS `https://gateway.debasti.com/pairing/health` respondeu `{"status":"ok"}`
+do próprio WSL. Foi copiado também o utilitário
+`scripts/wsl-v2-candidate-tunnel.sh` para
+`/home/ai-gateway/wsl-v2-candidate-tunnel.sh`.
+Verificação `bash -n` passou, `status` retornou corretamente
+`candidate-disconnected`, e a conexão v1 permaneceu ativa.
+**Não foi iniciado nenhum túnel novo ou alterada uma chave v1.**
+
+O servidor Oracle possui funções MCP `pairing_invite`,
+`pairing_requests` e `pairing_status` em seu código instalado,
+porém **a conexão ChatGPT AI Lab Gateway 06 neste chat ainda tem o
+catálogo antigo** de dez ferramentas; essas três ainda não aparecem
+para chamada autenticada. Precisamos atualizar/recriar a conexão
+MCP no ChatGPT para usar a solicitação legitimamente autenticada.
+**Não criar convite direto no banco, não fingir sujeito Auth0,
+não usar sudo para contornar essa separação.**
+
+Após ferramenta disponível: emitir convite curto com OAuth,
+enviar token confidencial ao cliente `claim` por stdin protegido,
+verificar fingerprints via página humana
+`https://gateway.debasti.com/approvals/pairing`,
+provisionar o candidato com
+`/root/ai-lab-v2-tools/provision_wsl_pairing_candidate_oracle.py`
+(apenas request_id aprovado), instalar chave pública de gerenciamento
+no WSL, abrir candidato 10003, verificar controle via novo SSH
+e somente então realizar cutover/revogação antiga.
