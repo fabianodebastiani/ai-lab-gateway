@@ -45,3 +45,74 @@ isolated laboratory, before any root deployment. Define and test controlled
 inputs, per-device identities, port allowlists, host-key pinning, negative
 cases, rollback and independent approval. Preserve the WSL legacy tunnel
 10002 and do not introduce generic sudo or revoke existing credentials.
+
+
+## Checkpoint: 2026-10-15 — isolated candidate provisioning (no production changes)
+
+GitHub Actions run https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38772295681
+passed **56 device-code tests, no failures**. This supersedes the prior
+48-test checkpoint.
+
+### New laboratory implementation
+
+- The internal DeviceCodeStore.approved_candidate_snapshot() returns a
+  narrow *public-key-only* record only after proof of possession, verified
+  operator code confirmation and still-valid approval. It normalizes the
+  SQLite integer connection preference to a real bool. This method is NOT
+  an HTTP or MCP endpoint and is NOT an authorization to run privileged code.
+- src/ai_lab_gateway/device_code_candidate.py implements the WSL PILOT
+  candidate preparation only: device windows-wsl, Restricted, on-demand,
+  loopback port 10003 (legacy 10002 stays untouched). It generates a distinct
+  management Ed25519 private key within a nonroot, isolated owner-only sandbox
+  and prepares the tunnel's permitlisten-only authorized_keys append fragment,
+  the Gateway's known_hosts fragment, a management-key append fragment for
+  the target, and an immutable public offer.
+- Stage operations create only a separate private laboratory directory.
+  Failure of DB offer staging removes the new directory, not existing data.
+  No real authorized_keys, known_hosts, sshd, systemd, sudoers, Gateway device
+  registry, target account, or current key is modified.
+- scripts/device_code_pair_linux.py additionally validates the SSH offer
+  against an independently obtained Gateway SSH host key pin and creates
+  *inert local fragments* in its owner-only state directory on first
+  acceptance. It does not install/configure SSH or start a tunnel.
+- Added tests/test_device_code_candidate.py, plus Linux-local staging
+  regression tests covering approval, short TTL, identity separation,
+  port restrictions, no priv escalation, 0600 key files, wrong pins,
+  symlinks, duplicate candidates and staging rollback.
+
+### Critical distinctions and known blockers
+
+1. This is NOT a running root-owned SSH provisioner. The lab intentionally
+   forbids execution as root; its direct internal store call and
+   provisioner_verified=True staging flag are NOT acceptable production
+   authorization boundaries. Production requires a separate root-owned,
+   strict UID/policy-checked IPC adapter and its own rollback, port locking,
+   SSH restrictions, audit and recovery tests.
+2. The current code targets the already registered WSL pilot first. It is
+   not yet generic new-Linux enrollment. Do not prematurely open arbitrary
+   reverse ports or create root privileges.
+3. A freshly generated device host identity is not necessarily the SSH host
+   key served by its sshd. For the existing WSL pilot use its independently
+   verified actual sshd host public key (or explicitly install/verify the
+   new one) before counting any SSH acceptance.
+4. The independently trusted Gateway SSH host public-key pin is NOT yet
+   distributed by the pinned Linux bootstrap; do not trust a key solely
+   because it appears in a server offer.
+5. Public device-code HTTPS endpoints and real Auth0 MCP confirmation
+   remain UNDEPLOYED. The independent consent boundary is not replaced
+   by a model-generated call; browser approval fallback stays intact.
+6. Source code and tests on GitHub do not prove successful tunnel setup,
+   verified management login, reconnect, atomic registry cutover or root
+   administrative rollback. No existing v1 credentials may be revoked yet.
+
+### Next planned implementation (same scope)
+
+Implement the controlled server-side root provisioner adapter using root-
+owned configuration and a protected peer-authenticated handoff; verify
+approved-state binding again before modifying any system-owned SSH file.
+Add candidate-only atomic append, strict permission checks, immutable key
+fingerprints, SSH negative tests and real rollback coverage in a sandbox.
+Then implement local narrow administration and full WSL acceptance while
+keeping the 10002 management channel intact. Only after this should the
+operator consider an approved Oracle rollout. No multi-platform or
+multi-user expansion is part of the immediate plan.
