@@ -526,3 +526,26 @@ expired on 2026-10-15 at 05:08 UTC and are not automatically renewable.
 **References:** [device-code protocol and acceptance criteria](device-code-pairing-v2.md),
 [v2 onboarding/access contract](v2-device-onboarding-access.md),
 [WSL migration checkpoint](wsl-v2-migration.md), ADR-027 and ADR-028.
+
+
+**Staging UX/security refinement — 2026-10-15 (not yet deployed):**
+Two independently displayed, 40-bit human-typeable codes are used.
+The first locates the provisional Linux through the user's real
+Auth0-authorized MCP session; lookup never discloses the **second** code
+or the signed challenge needed to reconstruct it. Only the target
+terminal displays the second code, and the user must manually type it
+in the ChatGPT conversation. The Gateway checks a protected HMAC digest,
+the exact request and verified subject, ten-minute expiration and a
+durable limit of four guesses. The model may not authorize via its own
+`yes`, a guessed Boolean or a code returned by a tool. This terminal-
+possession mechanism is a candidate independently verifiable consent
+channel, without a second browser login; its phishing risks require
+review and the browser approver remains available as fallback.
+Pairing identity approval does **not** activate SSH and does not grant
+sudo. See `docs/device-code-pairing-v2.md` for lab tests/limitations.
+
+The pre-release Linux bootstrap is pinned to an immutable Git commit
+and a verified SHA256 hash, downloaded over TLS, and never runs as root.
+This does **not** equal a separately signed release distribution;
+official signature management and on-server `/install.sh` deployment
+remain future work.
