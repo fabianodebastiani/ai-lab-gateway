@@ -76,6 +76,8 @@ class ProvisionSafetyTests(unittest.TestCase):
         }
         paths["tunnel"].write_text('permitlisten="127.0.0.1:10002" ssh-ed25519 EXISTING\n')
         paths["host"].write_text("[127.0.0.1]:10002 ssh-ed25519 EXISTING\n")
+        paths["tunnel"].chmod(0o600)
+        paths["host"].chmod(0o600)
         paths["registry"].write_text(json.dumps({"devices":[{
             "id":"windows-wsl","tunnel_port":10002
         }]}))
