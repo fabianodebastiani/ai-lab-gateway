@@ -10,6 +10,7 @@ on:
       - "scripts/run_device_code_root_preflight.py"
       - "scripts/run_device_code_root_apply.py"
       - "scripts/recover_device_code_root_candidate.py"
+      - "scripts/prepare_device_code_root_identity.py"
       - "scripts/run_device_code_lab.py"
       - "scripts/install_ai_lab_device.sh"
       - "tests/test_device_code*.py"
