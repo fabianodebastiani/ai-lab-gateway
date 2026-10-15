@@ -16,6 +16,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import tempfile
@@ -75,6 +76,8 @@ def rehearse_mock_gateway_install(store, request_id: str, *,
     """
     if os.geteuid() == 0:
         raise PermissionError("cannot rehearse as root")
+    if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{24,64}", request_id):
+        raise PermissionError("invalid approved request id")
     sandbox_root = Path(sandbox_root)
     _private_dir(sandbox_root)
     mock = sandbox_root / "mock-gateway"
