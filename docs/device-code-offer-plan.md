@@ -290,3 +290,103 @@ audit and negative SSH acceptance. Prepare a trusted device-local
 installer that can finish host key/user/service setup while preserving
 10002. This is not a change of scope: WSL first, restricted-first,
 on-demand persistence, no new features or platform expansion.
+
+
+## Checkpoint — 2026-10-15: root-owned candidate SSH transaction and disabled apply service
+
+**Verified Actions run:**
+https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38821352926
+
+- **General job:** 137 test cases discovered; 124 executed successfully,
+  13 actual-root cases intentionally skipped in the unprivileged job.
+- **Isolated root job:** those **13 tests ran as real UID 0 on an
+  ephemeral GitHub Actions machine and all passed**. Together the jobs
+  cover **137 distinct passing test cases**.
+- A prior CI attempt had an intermittent BrokenPipeError in the
+  wrong-UID rejection test because the kernel closed the unauthorized
+  socket before the client finished writing. The regression test now
+  recognizes a connection reset as a valid fail-closed denial. Both
+  jobs passed after the correction.
+
+### Implemented in source (NOT installed on Oracle)
+
+1. `src/ai_lab_gateway/device_code_root_transaction.py` — a root-only,
+   two-file SSH staging transaction core. It preserves distinct owner
+   UIDs/GIDs and 0600 permissions for tunnel authorized_keys and
+   Gateway known_hosts, writes root-owned fsync'ed undo journal and audit,
+   checks file ownership, types, links, modes and content under an
+   exclusive lock, and refuses duplicate candidate port 10003.
+   Explicit recovery restores the old bytes only if current files match
+   original/planned hashes. All old 10002 credentials remain present.
+2. Root CI uses real `os.fchown`, `fsync`, `os.replace`, and a
+   separate actual root worker process terminated abruptly via
+   `os._exit(137)`. The next root process recovered the pending journal.
+   This tests process-exit recovery, NOT VM power failure or disk corruption.
+3. `src/ai_lab_gateway/device_code_root_environment.py` supports
+   revalidating trusted fixed paths while a live socket reserves
+   `127.0.0.1:10003` (not a public listener). The production adapter
+   must keep that reservation from before the first validation until
+   after the two-file transaction.
+4. `src/ai_lab_gateway/device_code_root_apply.py` — a dedicated
+   root-only, exact-action candidate SSH staging RPC. The kernel
+   `SO_PEERCRED` restricts callers to the `ai-lab-gateway` UID. The
+   only accepted action is `apply_wsl_candidate(request_id)`.
+   Device, port, SSH keys, path, command, sudo, bypass flags,
+   registry and activation requests in the caller payload are refused.
+   The independent approval handoff and root-owned SSH environment are
+   rechecked immediately inside the journal lock before any changes.
+   Successful staging does NOT change the registry or activate the WSL.
+5. `scripts/run_device_code_root_apply.py` is a separate,
+   **disabled-by-default** root-only entrypoint, gated by an exact
+   root-owned 0400 administrative marker
+   `/etc/ai-lab-gateway/device-code-root-apply-enabled`.
+   This marker has NOT been created. The service has NOT been installed.
+6. `scripts/recover_device_code_root_candidate.py` is a separate
+   manual root-console-only recovery entrypoint, with fixed destinations
+   and no arbitrary command, user, file path or port selection; the
+   apply socket explicitly rejects recovery requests. NOT installed.
+7. New tests cover real root file ownership, wrong permissions, symlink
+   rejection, port conflicts, approval revoked between checks,
+   independent approval checks at commit, abrupt root process exit,
+   missing/corrupted journal, unrecognized actions, exact UID
+   verification, off-by-default marker, and preservation of the old
+   registry and credentials.
+
+### Deployment blockers — do not mistake successful source tests for cutover
+
+- No production root apply service/socket/unit, enable marker, fixed
+  journal directory or candidate management identity has been installed
+  through this flow. The fixed root preflight currently requires a
+  separately verified management private/public keypair that the
+  new device-code candidate must obtain from a trusted root-controlled
+  provisioning step before staging can succeed.
+- The production approval handoff and new device-code HTTPS/MCP endpoints
+  remain off. Root code refuses staging in their absence.
+- Existing WSL sshd actual host identity must be verified and match
+  the approved offer; the client's own generated host key does NOT
+  automatically become the sshd host key.
+- Real Oracle-owned directory layout, exact service UIDs and sshd -T
+  restrictions still require a supervised dry run. The root file-writing
+  core has been exercised only on disposable GitHub Actions paths.
+- The root transaction changes ONLY two SSH candidate files. It never
+  edits the device registry, changes the WSL target SSH account,
+  launches the 10003 tunnel, proves real management login, or revokes
+  the old port 10002 identity. A separate device-side installer,
+  end-to-end negative tests, atomic registry cutover and rollback
+  remain mandatory.
+- Approval marker creation, privileged root installation and cutover
+  are reserved for human-supervised administrative deployment. No
+  general passwordless sudo is introduced through MCP.
+
+**Last read-only production check (15 Oct):** Oracle MCP and Raspberry
+online, five Oracle services active, 10001 loopback listener present.
+WSL 10002 was offline (the known on-demand mode); candidate 10003
+remains not listening. The new `/pairing/device/health` still returns
+HTTP 404. No production services, credentials or policy were altered
+during this development step.
+
+**Next task:** implement a root-controlled candidate management identity
+creation/verification transaction, complete the separate target-side
+nonroot installer, and perform a supervised Oracle preflight review.
+Do not install/enable root apply until those prerequisites and the
+independent human approval mechanism are verifiably wired.
