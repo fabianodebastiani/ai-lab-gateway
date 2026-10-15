@@ -227,3 +227,66 @@ SSH tests and reconnect/rollback before registry switch. Do not turn
 the lab store's provisioner_verified Boolean into a trusted root permission.
 Do not grant sudo on pairing or revoke WSL 10002. Public device-code API and
 MCP confirmation are still not live.
+
+
+## Checkpoint — 2026-10-15: fixed root-owned read-only preflight service code
+
+**GitHub Actions verified:** https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38817253195
+**110 isolated device-code tests passed; no failures.** The preceding
+88-test checkpoint is preserved for chronology.
+
+New code and tests:
+- src/ai_lab_gateway/device_code_root_environment.py verifies fixed SSH
+  file identities and permissions, parent directories, no symlinks or
+  multiple hard links, protected registry, the effective sshd -T tunnel
+  account restrictions, and the vacant loopback candidate port 10003.
+  Secure file reads use O_NOFOLLOW and fstat of the opened descriptor.
+  It checks the candidate's gateway/target SSH host keys against
+  separately trusted local sources and proves the management public key
+  matches a locally held management private key using ssh-keygen -y.
+  The actual production entrypoint has hard-coded paths and requires UID 0.
+- src/ai_lab_gateway/device_code_root_preflight_rpc.py defines a root-owned,
+  STRICTLY READ-ONLY Unix preflight socket. The kernel SO_PEERCRED must
+  identify the ai-lab-gateway UID; its request accepts only an existing
+  request_id, no device, port, path, key, permission, sudo, shell, approve,
+  install or activate actions. The socket must be created by root with
+  owner=root, group=ai-lab-gateway, mode=0660 and inside a root-owned,
+  group=ai-lab-gateway 0750 directory. Its root constructor obtains the
+  already-approved candidate through the protected approval handoff and
+  checks root-owned local sources, not caller-supplied metadata.
+- scripts/run_device_code_root_preflight.py is an optional, standalone
+  read-only entrypoint: it refuses nonroot invocation, requires an exact
+  root-owned 0400 out-of-band enable marker at
+  /etc/ai-lab-gateway/device-code-root-preflight-enabled and recognizes
+  only --serve-read-only. This marker has NOT been created; the script
+  has NOT been installed, started or exposed.
+- tests/test_device_code_root_environment.py, root_preflight_rpc.py and
+  root_startup.py cover SSH file/link/mode/owner checks, independent
+  fingerprints, possession of management private key, effective sshd
+  restrictions, registry/port mismatches, kernel UID access, rejection
+  of forbidden RPC actions, socket ownership and disabled-by-default
+  startup. The GitHub Actions workflow now also watches the root runner.
+
+**Production limitations:** This is code for a potential restricted root
+*preflight service*, NOT the privileged file-mutating installer. It has
+no production unit, no root installation, no active pairing-code endpoint,
+no root-owned candidate key provisioned by this flow, no active WSL 10003
+tunnel and no registry switch. Real root-side source-file ownership and
+effective sshd checks have not been run in production.
+
+A particularly important acceptance constraint is that the Linux
+client's default, separately generated host-ed25519 identity is NOT
+automatically the key served by the device's sshd. For the current WSL
+pilot, pair with the independently verified actual sshd host public
+key (via the client's supported --host-key option) or explicitly
+install/verify a dedicated host key before enabling 10003. Never silently
+trust a new host key learned from the offer.
+
+**Next agreed step:** implement and review a separate narrow root-owned
+*apply* operation with verified approval at commit time, root-generated
+management credentials, protected SSH paths, fixed port allowlists,
+port reservation, durable root-owned transaction and crash recovery,
+audit and negative SSH acceptance. Prepare a trusted device-local
+installer that can finish host key/user/service setup while preserving
+10002. This is not a change of scope: WSL first, restricted-first,
+on-demand persistence, no new features or platform expansion.
