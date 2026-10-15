@@ -112,9 +112,15 @@ class HandoffSecurityTests(unittest.TestCase):
             "action": "inspect_staged_wsl", "request_id": self.request_id,
             "uid": os.geteuid() + 1}),
             {"ok": False, "error": "unauthorized_peer"})
-        self.assertEqual(inspect_candidate_over_unix(
-            self.socket, request_id=self.request_id),
-            {"ok": False, "error": "unauthorized_peer"})
+        # A kernel-peer rejection may return the explicit denial OR close
+        # with a reset before the client can send its complete request.
+        # Both are fail-closed outcomes; only approved material would be a bug.
+        try:
+            denied = inspect_candidate_over_unix(
+                self.socket, request_id=self.request_id)
+        except (BrokenPipeError, ConnectionResetError):
+            denied = {"ok": False, "error": "unauthorized_peer"}
+        self.assertEqual(denied, {"ok": False, "error": "unauthorized_peer"})
 
     def test_rejects_all_other_actions_and_mutation_parameters(self):
         self.approve_and_stage()
