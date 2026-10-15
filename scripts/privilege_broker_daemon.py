@@ -33,6 +33,9 @@ OPERATIONS = {
     "gateway-service-status": ("/usr/bin/systemctl", "is-active", "ai-lab-gateway"),
     "gateway-service-enabled": ("/usr/bin/systemctl", "is-enabled", "ai-lab-gateway"),
     "broker-root-write-selftest": ("/usr/bin/touch", "/var/lib/ai-lab-privilege-broker/root-write-selftest.ok"),
+    # Read-only, fixed-argument privileged diagnostics for the v2 pairing unit.
+    # Approval is single-use; no caller-supplied argv, paths, or shell.
+    "pairing-service-journal": ("/usr/bin/journalctl", "--unit=ai-lab-pairing.service", "--no-pager", "--lines=60", "--output=short-iso"),
 }
 MAX_TTL = 86400
 MAX_REQUEST_BYTES = 16384
