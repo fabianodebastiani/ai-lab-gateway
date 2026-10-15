@@ -1,9 +1,10 @@
-"""Isolated UNIX operator lookup boundary for ADR-029, NOT DEPLOYED.
+"""Isolated UNIX operator device-code boundary for ADR-029, NOT DEPLOYED.
 
 The anonymous device HTTP listener cannot read authenticated principals or
 approve device pairing. This companion UNIX socket checks peer Linux UID and
-lets the existing Auth0-authenticated MCP identity reserve a proven device
-code. No confirm/activate/root operation is exposed through this adapter.
+lets the Auth0-authenticated MCP identity reserve a proven device code and
+submit a separate **terminal-only** confirmation PIN that the lookup tool
+cannot see. No SSH activate/root/credential operation is exposed.
 """
 from __future__ import annotations
 
@@ -27,19 +28,29 @@ class OperatorProtocol:
         self.store = store
 
     def dispatch(self, message: object) -> dict:
-        if not isinstance(message, dict) or set(message) != {"action", "subject", "user_code"}:
+        if not isinstance(message, dict):
             return {"ok": False, "error": "invalid_request"}
-        if message["action"] != "lookup":
-            return {"ok": False, "error": "unsupported"}
-        try:
-            result = self.store.lookup(
-                user_code=message["user_code"],
-                operator_subject=message["subject"],
-            )
-            return {"ok": True, "request": result}
-        except (TypeError, ValueError, PermissionError, KeyError):
-            return {"ok": False, "error": "pairing_unavailable"}
-
+        action = message.get("action")
+        if action == "lookup":
+            if set(message) != {"action", "subject", "user_code"}:
+                return {"ok": False, "error": "invalid_request"}
+            try:
+                return {"ok": True, "request": self.store.lookup(
+                    user_code=message["user_code"],
+                    operator_subject=message["subject"])}
+            except (TypeError, ValueError, PermissionError, KeyError):
+                return {"ok": False, "error": "pairing_unavailable"}
+        if action == "confirm":
+            if set(message) != {"action", "subject", "request_id", "confirmation"}:
+                return {"ok": False, "error": "invalid_request"}
+            try:
+                return {"ok": True, "request": self.store.confirm(
+                    request_id=message["request_id"],
+                    confirmation=message["confirmation"],
+                    operator_subject=message["subject"])}
+            except (TypeError, ValueError, PermissionError, KeyError):
+                return {"ok": False, "error": "pairing_unavailable"}
+        return {"ok": False, "error": "unsupported"}
 
 class ThreadedUnix(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
@@ -92,19 +103,12 @@ def create_operator_socket(path: Path, store: DeviceCodeStore, *,
     return srv
 
 
-def call_operator_lookup(*, path: Path, subject: str, user_code: str) -> dict:
-    """Client-side primitive; only call after OAuth control + enroll grant."""
-    if not isinstance(subject, str) or not 1 <= len(subject) <= 256:
-        raise ValueError("verified operator subject required")
-    if not isinstance(user_code, str) or not 1 <= len(user_code) <= 24:
-        raise ValueError("invalid user code")
-    payload = json.dumps({
-        "action": "lookup", "subject": subject, "user_code": user_code,
-    }, separators=(",", ":")).encode("utf-8") + b"\n"
+def _operator_rpc(*, path: Path, payload: dict) -> dict:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(5)
         sock.connect(str(path))
-        sock.sendall(payload)
+        sock.sendall(json.dumps(
+            payload, separators=(",", ":")).encode("utf-8") + b"\n")
         reply = bytearray()
         while not reply.endswith(b"\n"):
             data = sock.recv(1024)
@@ -115,5 +119,33 @@ def call_operator_lookup(*, path: Path, subject: str, user_code: str) -> dict:
                 raise ValueError("operator IPC response too large")
     result = json.loads(reply)
     if not isinstance(result, dict) or result.get("ok") is not True:
-        raise PermissionError("pairing code unavailable or unauthorized")
+        raise PermissionError("pairing unavailable or unauthorized")
     return result["request"]
+
+
+def call_operator_lookup(*, path: Path, subject: str, user_code: str) -> dict:
+    """Client-side primitive; call after real OAuth control+device_enroll."""
+    if not isinstance(subject, str) or not 1 <= len(subject) <= 256:
+        raise ValueError("verified operator subject required")
+    if not isinstance(user_code, str) or not 1 <= len(user_code) <= 24:
+        raise ValueError("invalid user code")
+    return _operator_rpc(path=path, payload={
+        "action": "lookup", "subject": subject, "user_code": user_code})
+
+
+def call_operator_confirm(*, path: Path, subject: str,
+                          request_id: str, confirmation: str) -> dict:
+    """Terminal-only second code; never fetched from operator lookup.
+
+    Use only after verified Auth0 + scoped enrollment access and a
+    user-supplied code read from their physical Linux terminal.
+    """
+    if not isinstance(subject, str) or not 1 <= len(subject) <= 256:
+        raise ValueError("verified operator subject required")
+    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        raise ValueError("invalid request_id")
+    if not isinstance(confirmation, str) or not 1 <= len(confirmation) <= 24:
+        raise ValueError("invalid terminal confirmation code")
+    return _operator_rpc(path=path, payload={
+        "action": "confirm", "subject": subject,
+        "request_id": request_id, "confirmation": confirmation})
