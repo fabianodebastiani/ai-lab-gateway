@@ -116,3 +116,58 @@ Then implement local narrow administration and full WSL acceptance while
 keeping the 10002 management channel intact. Only after this should the
 operator consider an approved Oracle rollout. No multi-platform or
 multi-user expansion is part of the immediate plan.
+
+
+## Checkpoint — 2026-10-15: protected staging RPC and SSH file rehearsal
+
+**Verified:** GitHub Actions https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38773951543
+passed **72 isolated device-code tests** on the commit ff7e558d27de.
+Earlier failed runs were investigated and repaired before this successful run.
+These tests remain laboratory evidence, not production acceptance.
+
+New candidate-provisioning work:
+- src/ai_lab_gateway/device_code_provision_rpc.py introduces a NONROOT
+  Unix-domain laboratory RPC boundary with kernel SO_PEERCRED UID checks,
+  owner-only 0700 socket directory, 0600 socket, hard payload limits,
+  and exactly one action (stage_wsl_candidate). The caller submits only
+  request_id; device ID, keys, port, paths, sudo flags, access mode and
+  commands are not accepted. Unapproved/expired/replayed requests fail closed
+  without exposing credentials or database internals.
+- tests/test_device_code_provision_rpc.py exercises real Unix sockets and
+  UID rejection, forbidden parameters, one-time staging, rejection of
+  unapproved/expired sessions, private files and rollback on DB staging error.
+- DeviceCodeStore.staged_candidate_snapshot() rechecks approval state,
+  expiry and immutable offer presence before sandbox installation rehearsal;
+  it is internal only, not an MCP or HTTP tool.
+- src/ai_lab_gateway/device_code_candidate_files.py rehearses fixed-port
+  WSL candidate authorized_keys and known_hosts appends against two fixed
+  mock files inside sandbox_root/mock-gateway. It verifies the immutable
+  DB-backed offer, trusted independent Gateway SSH host-key pin, exact
+  tunnel/host/management public keys, candidate fragments, file ownership,
+  modes and no-symlink invariants. It uses a local advisory file lock,
+  fsync + os.replace and restores the original first file on a simulated
+  second-stage error. The unit tests also cover tampering, wrong pins,
+  replay, expired authorization, unsafe modes/symlinks and path traversal.
+- tests/test_device_code_candidate_files.py verifies that existing
+  mock credentials remain intact across denied operations and rollback.
+  No live sshd, keys or registry were touched.
+
+**Critical distinction:** Nothing here is a privileged production
+provisioner. This laboratory deliberately refuses root execution and cannot
+modify any system-owned SSH file. Passing the current suite does NOT prove
+durable crash-safe cross-file transactions, correct ownership under real
+root, port reservation, exact runtime policy, independently authorized
+root-owned IPC, or full SSH acceptance. The Boolean
+provisioner_verified=True in the isolated store is not authorization from a
+human and MUST NOT become a callable parameter of any production interface.
+
+Before activation, implement a standalone root-owned service with strict
+peer-UID checks, allowlisted root-owned source paths and policy, atomic
+candidate-only installation with journaled crash recovery, root-controlled
+key/port reservation, audited operator approval, and negative SSH tests.
+Use the actual sshd host key of the target (or deliberately provision one)
+and verify it before connection is considered trusted. Keep both WSL port
+10002 and Raspberry port 10001 working. After independent device-side
+installation, test candidate 10003 and perform controlled cutover only after
+rollback/reconnect/negative tests. The new device-code public API and MCP
+consent/confirmation remain not deployed.
