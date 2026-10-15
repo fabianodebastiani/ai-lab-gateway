@@ -29,7 +29,7 @@ class OperatorTests(unittest.TestCase):
             private = self.root/role
             subprocess.run(["ssh-keygen","-q","-t","ed25519","-N","",
                             "-f",str(private)],check=True,capture_output=True)
-            keys.append((private,Path(str(private)+".pub").read_text()))
+            keys.append((private,Path(str(private)+".pub").read_text().strip()))
         self.keys=keys
         self.runtime=self.root/"runtime"
         self.runtime.mkdir(mode=0o700)
