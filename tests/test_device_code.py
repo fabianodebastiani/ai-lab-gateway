@@ -98,32 +98,28 @@ class DeviceCodeTests(unittest.TestCase):
         self.assertNotIn(p["user_code"].replace("-","").encode(),data)
         self.assertNotIn(p["device_secret"].encode(),data)
 
-    def test_valid_proof_and_operator_confirmed_only_with_attestation(self):
+    def test_valid_proof_requires_device_terminal_confirmation_secret(self):
         p=self.new(persistent=True)
         self.assertTrue(p["persistent"])
         self.assertEqual(self.prove(p)["status"],"proven")
         lookup=self.store.lookup(user_code=p["user_code"].lower(),
                       operator_subject="auth0|alice",now=106)
         self.assertEqual(lookup["request_id"],p["request_id"])
-        self.assertEqual(lookup["confirmation"],p["confirmation"])
+        self.assertNotIn("confirmation",lookup)  # MCP cannot learn the PIN
         self.assertEqual(lookup["access_mode"],"restricted")
-        with self.assertRaises(PermissionError):
-            self.store.confirm(request_id=p["request_id"],
-                   operator_subject="auth0|alice",
-                   confirmation=p["confirmation"],now=107)
-        with self.assertRaises(PermissionError):
+         with self.assertRaises(PermissionError):
             self.store.confirm(request_id=p["request_id"],
                    operator_subject="auth0|mallory",
-                   confirmation=p["confirmation"],consent_verified=True,now=107)
+                   confirmation=p["confirmation"],now=107)
         with self.assertRaises(PermissionError):
             self.store.confirm(request_id=p["request_id"],
                    operator_subject="auth0|alice",
                    confirmation="WRONG",
-                   consent_verified=True,now=107)
+                   now=107)
         approved=self.store.confirm(request_id=p["request_id"],
                    operator_subject="auth0|alice",
                    confirmation=p["confirmation"],
-                   consent_verified=True,now=107)
+                   now=107)
         self.assertEqual(approved["status"],"approved")
         with self.assertRaises(PermissionError):
             self.store.activate(request_id=p["request_id"],now=108)
@@ -132,6 +128,38 @@ class DeviceCodeTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.store.activate(request_id=p["request_id"],
                          provisioner_verified=True,now=109)
+
+    def test_terminal_confirmation_code_is_not_stored_or_exposed(self):
+        p=self.new()
+        self.prove(p)
+        record=(self.root/"codes.sqlite").read_bytes()
+        self.assertNotIn(p["confirmation"].encode(),record)
+        self.assertNotIn(p["confirmation"].replace("-", "").encode(),record)
+        lookup=self.store.lookup(user_code=p["user_code"],
+                                 operator_subject="auth0|alice",now=107)
+        self.assertNotIn("confirmation",lookup)
+        self.assertNotIn("challenge_b64",lookup)
+        self.assertNotIn("device_secret",lookup)
+        approved=self.store.confirm(request_id=p["request_id"],
+                       operator_subject="auth0|alice",
+                       confirmation=p["confirmation"].lower(),now=108)
+        self.assertEqual(approved["status"],"approved")
+
+    def test_terminal_confirmation_tries_are_persistently_rate_limited(self):
+        p=self.new()
+        self.prove(p)
+        self.store.lookup(user_code=p["user_code"],
+                         operator_subject="auth0|alice",now=106)
+        for i in range(4):
+            with self.assertRaises(PermissionError):
+                self.store.confirm(request_id=p["request_id"],
+                         operator_subject="auth0|alice",
+                         confirmation="AAAA-AAAA",now=107+i)
+        # Even the correct code is rejected after four failed attempts.
+        with self.assertRaises(PermissionError):
+            self.store.confirm(request_id=p["request_id"],
+                         operator_subject="auth0|alice",
+                         confirmation=p["confirmation"],now=111)
 
     def test_wrong_key_forgery_does_not_advance(self):
         p=self.new()
@@ -175,7 +203,7 @@ class DeviceCodeTests(unittest.TestCase):
             self.store.confirm(request_id=p["request_id"],
                            operator_subject="auth0|mallory",
                            confirmation=p["confirmation"],
-                           consent_verified=True,now=109)
+                           now=109)
 
     def test_secret_needed_to_poll_and_poll_rate_limit(self):
         p=self.new()
@@ -209,7 +237,7 @@ class DeviceCodeTests(unittest.TestCase):
             self.store.confirm(request_id=p["request_id"],
                            operator_subject="auth0|alice",
                            confirmation=p["confirmation"],
-                           consent_verified=True,now=701)
+                           now=701)
 
     def test_invalid_identity_rejected(self):
         with self.assertRaises(ValueError):
