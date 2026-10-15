@@ -252,3 +252,90 @@ secrets and absence of MCP self-approval.
 **No Oracle production Caddy/SSH/systemd/registry changes were made for
 this checkpoint.** WSL v1 still uses port 10002; staged v2 port 10003
 has not been activated.
+
+
+## Implementation refinement — two short codes, no second browser login
+
+**Experimental mechanism implemented 2026-10-15; UX/security review still
+required before production.** On a previously unknown Linux terminal,
+the bootstrap client displays two independent values:
+
+```text
+AI Lab Gateway — Vincular dispositivo
+Código: K7M2-P9Q4             # Example only: lookup by Auth0 MCP
+Confirmação: 8H6P-L3SK       # Example only: target-terminal secret
+No ChatGPT: Conectar dispositivo K7M2-P9Q4
+Aguardando autorização...
+```
+
+The authenticated ChatGPT MCP operator provides the **first** code to
+`pairing_lookup_code(code)`. The response includes device name,
+request_id, Restricted mode, persistence preference, tunnel and host
+fingerprints, but **never** the second code, signed challenge, device
+secret or private SSH key. The user compares the fingerprint/details
+with the Linux they are physically using. ChatGPT asks the person to
+type the second code shown **only on the target terminal**. The user
+sends it in the chat; the model invokes
+`pairing_confirm_code(request_id, confirmation_code)` with its real
+verified Auth0 identity and `gateway:control` + `device_enroll` grant.
+
+The backend stores only an HMAC digest of the second code, binds it to
+the exact request and OAuth subject, enforces 10-minute expiry, and
+permanently denies after **four** bad confirmation attempts. This is a
+bounded proof of access to the target's terminal, rather than a model
+asserting that the user typed "yes". It works when ChatGPT runs on a
+*different computer* or phone, without a separate admin-panel password.
+
+Security assumptions and boundaries: a stolen/phished terminal code
+can still authorize a device for an authorized operator who submits it.
+Display request details and insist that the person reads the second
+code from the intended device; never accept it from a retrieved web
+page, an untrusted tool result or the MCP lookup response. The browser
+approver remains available as a higher-assurance administrative
+fallback. This only approves enrollment identity; SSH provisioning and
+status=active are separate operations, and sudo is never granted by
+pairing.
+
+**Staging implementation status:**
+- `src/ai_lab_gateway/device_code.py` stores `confirmation_digest`
+  (not plaintext) and a durable `confirm_failures` counter, discloses
+  no confirmation in `lookup`, and accepts confirmation only from the
+  bound principal.
+- `src/ai_lab_gateway/device_code_operator.py` exposes two exact
+  Unix RPC actions, `lookup` and `confirm`, with `SO_PEERCRED`
+  UID enforcement; neither can provision SSH or grant root.
+- `src/ai_lab_gateway/server.py` prepares
+  `pairing_lookup_code` and `pairing_confirm_code`, both behind
+  `AI_LAB_DEVICE_CODE_MCP_ENABLED=1` (**OFF BY DEFAULT**) and
+  `gateway:control`/device_enroll authorization.
+- `src/ai_lab_gateway/sshsig.py` verifies the signed OpenSSH SSHSIG
+  challenge. Linux `scripts/device_code_pair_linux.py` uses Python
+  3.10+ stdlib + the local OpenSSH `ssh-keygen -Y sign`, without
+  extra Python cryptography packages or an already configured sshd.
+  It generates *separate* local tunnel and host Ed25519 identities,
+  plus a stable, randomly suffixed device identifier.
+- `scripts/install_ai_lab_device.sh` downloads the exact CLI source
+  from immutable Git commit `536f5e1ce5fa885d9aa1d757182a01c10d751ae5`
+  and checks SHA256
+  `c25b3ad332c439e49aa9946cd0fd1330c68b979ed34237a6665e88627f8594d3`
+  before nonroot execution. It is an **experimental HTTPS bootstrap**,
+  NOT yet available from the proposed permanent `/install.sh` URL.
+  HTTPS authenticates the first-stage bootstrap origin; the embedded
+  hash authenticates the pinned downstream client relative to that
+  bootstrap. A separately verifiable release signature and formal
+  distribution/release process are still pending.
+
+**Evidence:** 35 automated tests passed on the current WSL
+`/home/ai-gateway/device-code-lab`, including a subprocess
+fresh-home download without existing SSH keys, Python `-S`
+(no site packages), real `ssh-keygen -Y sign` verification,
+Hash mismatch refusal, Auth0-bound Unix lookup, retyped second
+terminal PIN approval, four persistent failed attempts, replay
+prevention, and no remote root privilege.
+
+**Outstanding critical blockers:** There is **no public production
+`/pairing/device/start` service**, no live MCP confirm tool, and no
+automatic SSH management-key delivery, tunnel activation or registry
+cutover. The root-owned provisioner, real authenticated MCP deployment
+and truly unconfigured target acceptance tests remain to be completed.
+Keep WSL legacy port 10002 intact and staged 10003 inactive.
