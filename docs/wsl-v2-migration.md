@@ -161,3 +161,49 @@ commands to bypass this boundary.
 
 **No immediate manual action is required** while code and tests are
 prepared. Keep the current WSL connection running for development.
+
+
+## Piloto WSL existente — decisão do operador em 15/10/2026
+
+**Não criar segunda distribuição WSL.** O Ubuntu WSL atual será o único
+alvo do primeiro teste. O operador autoriza apagar a conexão antiga
+*após* o novo caminho ter sido comprovado, incluindo substituição de
+chaves e do serviço de túnel. A conexão v1 poderá ser usada somente
+como canal temporário de preparação, sem que isso conte como teste
+de onboarding de dispositivo virgem.
+
+**Critério de produto para dispositivo virgem permanece obrigatório:**
+o cliente v2 deve conseguir preparar as próprias chaves e fazer claim
+HTTPS sem qualquer SSH prévio entre alvo e Gateway. O teste de aceitação
+com Linux realmente virgem virá depois, quando houver provisionamento
+totalmente automático.
+
+Em 15/10 às 04:32 UTC a porta legada 10002 ainda estava desconectada
+(exit SSH 255 `Connection refused`). ChatGPT solicitou ao operador
+iniciar `ai-lab-wsl-tunnel.service` localmente. Nenhum dispositivo
+foi removido, nenhuma chave foi substituída.
+
+Novo código no Git:
+- `scripts/ai-lab-device-pair-v2.py`: cliente independente de
+  `prepare`/ `claim` HTTPS. Prepara chave ED25519 única no próprio
+  Linux, valida host key, token e retorno `pending+restricted`,
+  confere ambos os fingerprints, não pede sudo e não altera
+  `authorized_keys`, `sudoers`, `systemd` nem túneis existentes.
+  A preparação no WSL pode ser executada via SSH v1, mas a chamada
+  HTTPS não depende desse túnel.
+- `tests/test_device_pair_client.py`: cinco testes aprovados no
+  laboratório Oracle em 15/10. São testes locais, sem afirmar
+  provisionamento automático completo.
+
+**Atenção:** o cliente requer OpenSSH/sshd já instalado e uma
+conta Linux não-root existente. O instalador inicial de um Linux
+virgem deverá provisionar esses pré-requisitos localmente, com sudo
+concedido por seu administrador. A criação de uma chave/ticket pending
+ainda não torna o dispositivo administrável pelo MCP.
+
+Próximo objetivo operacional: ligar temporariamente o túnel antigo,
+executar `prepare` da nova chave no WSL, solicitar convite autenticado
+via MCP, fazer claim HTTPS, confirmar os fingerprints no painel humano,
+provisionar credenciais exclusivas no Gateway, iniciar o candidato no
+loopback 10003, validar `exec` com identidade nova e depois revogar
+as credenciais v1 sem alterar Oracle ou Raspberry.
