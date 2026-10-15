@@ -85,13 +85,13 @@ class RolloutTests(unittest.TestCase):
 
     def test_plain_text_health_is_accepted_only_for_approved_endpoint(self):
         from types import SimpleNamespace
-        with patch.object(self.m, "run", return_value=SimpleNamespace(stdout="ok\\n")):
+        with patch.object(self.m, "run", return_value=SimpleNamespace(stdout="ok")):
             self.assertEqual(
                 self.m.wait_for_health("https://gateway.debasti.com/approvals/health",
                                        plain_ok=True, timeout_seconds=1),
                 {"status": "ok"}
             )
-        with patch.object(self.m, "run", return_value=SimpleNamespace(stdout="ok\\n")), patch.object(
+        with patch.object(self.m, "run", return_value=SimpleNamespace(stdout="ok")), patch.object(
             self.m.time, "monotonic", side_effect=[0, 2]
         ), patch.object(self.m.time, "sleep"):
             with self.assertRaisesRegex(RuntimeError, "did not become ready"):
