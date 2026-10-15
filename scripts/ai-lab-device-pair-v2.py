@@ -141,6 +141,8 @@ def main() -> int:
     parser.add_argument("--persistent", action="store_true", default=False)
     parser.add_argument("--directory", type=Path, default=Path.home() / ".ssh" / "ai-lab-v2")
     parser.add_argument("--host-key", type=Path, default=HOST_KEY)
+    parser.add_argument("--token-stdin", action="store_true",
+                        help="Read the invitation from a trusted pipe; never from argv")
     args = parser.parse_args()
     if os.geteuid() == 0:
         parser.error("run under the target's unprivileged Linux management account, not root")
@@ -156,10 +158,13 @@ def main() -> int:
                 "note": "No SSH account, tunnel or gateway permission changed",
             }, indent=2))
             return 0
-        if not sys.stdin.isatty():
-            raise RuntimeError("claim requires a trusted interactive terminal for the secret token")
-        import getpass
-        token = getpass.getpass("One-time pairing invitation (hidden): ").strip()
+        if args.token_stdin:
+            token = sys.stdin.readline(256).strip()
+        else:
+            if not sys.stdin.isatty():
+                raise RuntimeError("claim requires a terminal or --token-stdin trusted pipe")
+            import getpass
+            token = getpass.getpass("One-time pairing invitation (hidden): ").strip()
         result = claim(
             DEFAULT_ENDPOINT, token, device_id=args.device_id,
             device_name=args.name or args.device_id, persistent=args.persistent,
