@@ -205,8 +205,11 @@ def validate_challenge(reply: dict, *, device_id: str,
                             separators=(",", ":")) + "\n").encode("ascii")
     if challenge != canonical or set(details) != set(expected) | {"nonce"}:
         raise ValueError("noncanonical or extended challenge")
-    comparison = base64.b32encode(hashlib.sha256(
+    comparison_std = base64.b32encode(hashlib.sha256(
         b"ai-lab-device-code-confirm-v1\x00" + challenge).digest()[:5]).decode("ascii")
+    standard = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    comparison = "".join(CODE_ALPHABET[standard.index(letter)]
+                         for letter in comparison_std)
     if reply.get("confirmation") != comparison[:4] + "-" + comparison[4:]:
         raise ValueError("display confirmation mismatch")
     return challenge
