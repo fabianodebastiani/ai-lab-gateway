@@ -229,13 +229,14 @@ def pairing_status(request_id: str) -> dict:
 
 # ADR-029 staging only. Intentionally absent from the default MCP catalog
 # until a separately deployed, UID-locked operator socket is available.
-# This tool can resolve a device code and bind it to a verified Auth0 subject;
-# it CANNOT approve, activate, mint SSH credentials or grant sudo.
-# In particular DO NOT expose a pairing_confirm that accepts a model-written
-# "consent_verified" argument; that would bypass independent human approval.
+# Code lookup NEVER exposes the Linux-only confirmation PIN. A second MCP
+# operation may approve identity only if the Auth0 user manually supplies
+# this terminal-only PIN. No model-authored "yes" or Boolean is accepted.
+# This cannot activate SSH, mint credentials or grant sudo.
 if os.environ.get("AI_LAB_DEVICE_CODE_MCP_ENABLED") == "1":
     from pathlib import Path as _Path
     from .device_code_operator import call_operator_lookup as _device_code_lookup
+    from .device_code_operator import call_operator_confirm as _device_code_confirm
 
     @mcp.tool()
     def pairing_lookup_code(code: str) -> dict:
@@ -245,6 +246,21 @@ if os.environ.get("AI_LAB_DEVICE_CODE_MCP_ENABLED") == "1":
             path=_Path("/run/ai-lab-device-code/operator.sock"),
             subject=identity.subject, user_code=code)
         return result
+
+    @mcp.tool()
+    def pairing_confirm_code(request_id: str, confirmation_code: str) -> dict:
+        """Approve only with the second one-time code typed by the human.
+
+        The lookup tool NEVER reveals that code and cannot derive it.
+        It must be read from the physical Linux target by the operator.
+        A model-generated yes/boolean does not count as approval.
+        This approves identity only: no SSH access, device activation or sudo.
+        """
+        identity = _authorize_device_pairing()
+        return _device_code_confirm(
+            path=_Path("/run/ai-lab-device-code/operator.sock"),
+            subject=identity.subject, request_id=request_id,
+            confirmation=confirmation_code)
 
 
 def _http_app():
