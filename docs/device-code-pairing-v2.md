@@ -188,3 +188,67 @@ or live endpoint is promised by this document.
   do not try to bypass controls or leave persistent root access.
 
 See [WSL migration notes](wsl-v2-migration.md).
+
+
+## Implementation checkpoint — 2026-10-15 (local WSL lab)
+
+**The device-initiated code + key-possession handshake now exists as
+tested code, NOT as a public production endpoint or completed enrollment.**
+
+Implementation:
+- `src/ai_lab_gateway/device_code.py` — transactional 10-minute sessions,
+  independent 40-bit human code and high-entropy device secret, Ed25519
+  possession proof, expiry/replay/source/operator quotas, 0600 SQLite in
+  owner-only 0700 directory. Restricted-first, no sudo.
+- `src/ai_lab_gateway/device_code_http.py` — loopback HTTP
+  `POST /pairing/device/start`, `/prove`, `/poll`, plus health endpoint.
+  Anonymous requests can **only** ask/prove/poll. No approval or activation.
+  Per-peer quotas use kernel TCP peer address, not untrusted forwarded
+  headers. **Before public Caddy exposure**, deploy a trusted source-IP
+  accounting scheme, reverse-proxy limits and audit.
+- `scripts/device_code_pair_linux.py` — target-side Python CLI with
+  outbound HTTPS, local ssh-keygen, versioned challenge validation, Ed25519
+  signing, terminal code+confirmation display, and authenticated polling.
+  Currently requires preinstalled `python3-cryptography`, `ssh-keygen`
+  and a Linux OpenSSH ED25519 host key; a truly virgin installer must
+  prepare these prerequisites securely. `--no-wait` is for lab only.
+- `src/ai_lab_gateway/device_code_operator.py` — separate Unix IPC
+  operator lookup, enforcing the gateway daemon's Linux peer UID;
+  only `lookup` exists. The Auth0 subject must originate from a
+  trusted OAuth-verifying caller and be authorized for `device_enroll`.
+  This socket does **not** expose confirm/approve/root/activate actions.
+- `src/ai_lab_gateway/server.py` — proposed MCP tool
+  `pairing_lookup_code(code)` is **feature-gated off by default**
+  (requires `AI_LAB_DEVICE_CODE_MCP_ENABLED=1` and a separate verified
+  operator socket). It still requires the real Auth0
+  `gateway:control` scope + per-operator `device_enroll` policy.
+  Do not enable on the production service before its IPC is deployed.
+- `scripts/run_device_code_lab.py` — non-root **loopback-only** staging
+  runner with 0600 HMAC secret, SQLite and private local operator socket.
+  Requires explicit `--lab-only`, has no Auth0 front end and must never
+  be exposed directly on the Internet.
+
+**Acceptance evidence:** in the existing WSL
+`/home/ai-gateway/device-code-lab`, 26 tests passed, including subprocess
+client/server interaction, HTTP rate limiting, key proof, guessed/stolen
+codes, remote HTTP rejection, Unix peer-UID rejection, protected local
+secrets and absence of MCP self-approval.
+
+**Important boundaries still open:**
+1. Signed/version-pinned Linux installer that can prepare virgin
+   Linux (OpenSSH server/host key, management user and service).
+2. New device API deployed on Oracle with trusted proxy client identity,
+   defense-in-depth rate limiting and authentication/monitoring.
+3. Protected operator IPC installed, Auth0 MCP lookup tool enabled,
+   and **independent host-attested explicit human consent** before any
+   `confirm` is exposed to an AI caller. The current web approval may
+   remain as fallback while that is unresolved.
+4. Narrow SSH credential delivery/provisioning, candidate tunnel,
+   successful new `exec/read/write` end-to-end, atomic registry
+   update, old-credential revocation and negative tests.
+5. A real no-previous-SSH Linux enrollment test before declaring
+   the onboarding production-ready.
+
+**No Oracle production Caddy/SSH/systemd/registry changes were made for
+this checkpoint.** WSL v1 still uses port 10002; staged v2 port 10003
+has not been activated.
