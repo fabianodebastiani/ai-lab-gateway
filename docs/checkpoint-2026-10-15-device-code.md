@@ -136,3 +136,55 @@ The next implementation tasks are the versioned portable Linux CLI,
 isolated device HTTPS start/prove/poll API and Auth0-restricted MCP
 lookup/consent integration. Do not bypass the human-approval trust
 boundary merely through a model-supplied `consent_verified=true`.
+
+
+## Checkpoint: new HTTP + CLI + IPC implementation, 2026-10-15 ~06:40 BRT
+
+Requested continuation was completed without any sudo or production
+deployment. Code was created on GitHub, copied via existing authorized MCP
+to `/home/ai-gateway/device-code-lab`, and tested against a loopback
+HTTP server running as an unprivileged user.
+
+**New implementation files:**
+- `src/ai_lab_gateway/device_code_http.py` — nonprivileged HTTP
+  `/pairing/device/start`, `/prove`, `/poll` and `/health`;
+  bounded JSON and per-peer rate limits, no approver routes, private
+  session secrets in responses only to the requesting device.
+- `scripts/device_code_pair_linux.py` — non-root CLI creates a
+  device-local Ed25519 tunnel identity, verifies canonical challenge
+  with bound fingerprints, signs, displays 8-character code and
+  comparison string, polls without SSH. Staging needs Python 3.10+,
+  `python3-cryptography`, `ssh-keygen`, and preexisting SSH host key.
+- `src/ai_lab_gateway/device_code_operator.py` — separate
+  Unix-domain RPC with Linux `SO_PEERCRED` UID enforcement; only
+  Auth0-principal lookup, never confirmation/activation.
+- `src/ai_lab_gateway/server.py` — read-only/authenticated
+  `pairing_lookup_code` tool behind
+  `AI_LAB_DEVICE_CODE_MCP_ENABLED=1`, **default disabled**;
+  still requires `gateway:control` and `device_enroll`.
+- `scripts/run_device_code_lab.py` — localhost-only
+  user-level API + operator socket, protected 0600 HMAC key and
+  0600 SQLite in 0700 state directory; explicit `--lab-only`.
+
+**New test files:** `tests/test_device_code_http.py`,
+`tests/test_device_code_operator.py`,
+`tests/test_device_code_mcp_surface.py`,
+`tests/test_device_code_lab_runner.py`.
+
+**Final lab result:** **26/26 tests passed** in the original WSL,
+including a *two-process* real HTTP CLI-to-server handshake and
+subsequent local Unix operator-code lookup, rate limits, denial of
+unauthorized public API approval, cryptographic proof, one-time/expiry,
+code theft resistance and refusal of a fake operator UID. No preexisting
+AI Lab SSH credential was used by the **CLI's pairing protocol**, even
+though WSL v1 SSH was used to copy the staging code for development.
+
+**Do not overstate:** no true virgin Linux machine has been enrolled;
+the temporary lab HTTP service was loopback-only and not left running.
+Production Oracle remains unchanged. Candidate SSH v2 on 10003
+remains unactivated. Existing WSL v1 tunnel 10002 remains active.
+Current user sudo elevation on Oracle is expired; no new root grant
+was requested. Future steps require a signed virgin Linux installer,
+trusted reverse proxy, host-verifiable human consent (not a bare model
+tool argument), narrow SSH provisioner, supervised deployment, then
+real on-device end-to-end acceptance.
