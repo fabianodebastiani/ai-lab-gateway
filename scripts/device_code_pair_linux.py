@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import socket
 import stat
 import subprocess
@@ -117,6 +118,39 @@ def local_keys(state_dir: Path, *, host_key_path: Path | None = HOST_KEY):
     if tunnel == host:
         raise ValueError("tunnel and host SSH identities must be independent")
     return private, tunnel, host
+
+def automatic_device_id(state_dir: Path, *, hostname: str | None = None) -> str:
+    """One generated stable device ID for this local keypair, no account input."""
+    owned_private_dir(state_dir.parent)
+    owned_private_dir(state_dir)
+    marker = state_dir / "device-id"
+    if not marker.exists() and not marker.is_symlink():
+        base = hostname or socket.gethostname()
+        label = re.sub(r"[^a-z0-9-]+", "-", base.lower()).strip("-")
+        if not label or label[0] not in "abcdefghijklmnopqrstuvwxyz":
+            label = "linux-" + label
+        candidate = label[:36].strip("-") + "-" + secrets.token_hex(4)
+        if not ID_PATTERN.fullmatch(candidate):
+            raise ValueError("invalid generated device id")
+        try:
+            fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(fd, "w", encoding="ascii") as stream:
+                stream.write(candidate + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+    if marker.is_symlink() or not marker.is_file():
+        raise PermissionError("invalid local device ID file")
+    st = marker.stat()
+    if st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != 0o600:
+        raise PermissionError("device ID file must be owner-only 0600")
+    value = marker.read_text(encoding="ascii").strip()
+    if not ID_PATTERN.fullmatch(value):
+        raise ValueError("invalid persisted device ID")
+    return value
+
 
 def post(url: str, path: str, data: dict) -> dict:
     endpoint = base_url(url) + path
@@ -239,7 +273,7 @@ def run(*, url: str, device_id: str, name: str, persistent: bool,
 def main() -> int:
     parser = argparse.ArgumentParser(description="Experimental one-command Linux device-code pairing")
     parser.add_argument("--base-url", required=True, help="HTTPS Gateway URL or localhost test endpoint")
-    parser.add_argument("--device-id", required=True)
+    parser.add_argument("--device-id", help="Optional, generated and saved on first run")
     parser.add_argument("--name", default=socket.gethostname())
     parser.add_argument("--persistent", action="store_true", default=False)
     parser.add_argument("--state-dir", type=Path,
@@ -248,7 +282,8 @@ def main() -> int:
     parser.add_argument("--no-wait", action="store_true", help="Only for staging protocol tests")
     args = parser.parse_args()
     try:
-        return run(url=args.base_url, device_id=args.device_id,
+        device_id = args.device_id or automatic_device_id(args.state_dir)
+        return run(url=args.base_url, device_id=device_id,
                    name=args.name, persistent=args.persistent,
                    state_dir=args.state_dir, host_key_path=args.host_key,
                    wait=not args.no_wait)
