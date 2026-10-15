@@ -390,3 +390,95 @@ creation/verification transaction, complete the separate target-side
 nonroot installer, and perform a supervised Oracle preflight review.
 Do not install/enable root apply until those prerequisites and the
 independent human approval mechanism are verifiably wired.
+
+
+## Checkpoint — 2026-10-15: supervised root SSH management identity
+
+**GitHub Actions verified:**
+https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38824505117
+
+**143 distinct passing tests, no failures:** the unprivileged job
+discovered 143 cases, passed 125 and correctly skipped the 18 tests
+requiring actual UID 0; the separate root job ran all 18 root cases
+successfully (13 SSH transaction, 5 new independent identity tests).
+
+### Implemented but not deployed
+
+- `src/ai_lab_gateway/device_code_root_identity.py`: one-time WSL
+  candidate management Ed25519 identity creation at an *exclusive root
+  controlled* key directory. Private and public files are owned
+  `root:ai-lab-gateway` with 0640; the dedicated candidate directory
+  and its parent are `root:ai-lab-gateway` 0750. Only root can publish
+  or replace files; the Gateway group can read the private key without
+  owning/writing it. A root-only lock, temporary directory, fsync and
+  atomic rename prevent publishing half-generated key pairs.
+  Repeated generation is refused. This key is unrelated to the current
+  WSL v1 (10002) identity; no live SSH credential is installed.
+- Key derivation is tested from the perspective of the **actual
+  unprivileged service UID** by `/usr/bin/setpriv` then
+  `/usr/bin/ssh-keygen -y`. This is necessary: OpenSSH rejects a
+  root-owned private file with group-readable 0640 when ssh-keygen
+  runs as root itself. Tests use the genuine CI `nobody` passwd
+  account as the unprivileged stand-in. There is no private key
+  disclosure to an RPC/ChatGPT client.
+- `src/ai_lab_gateway/device_code_root_environment.py`: fixed-path
+  production preflight now reads the independent candidate public key
+  ONLY after `verify_wsl_management_identity` has checked its
+  root-owned files and derived the matching public identity as the
+  Gateway UID. The laboratory unit-test file injection remains
+  separate; passing a model-provided key to the production wrapper
+  is not possible.
+- `scripts/prepare_device_code_root_identity.py`: manual,
+  root-only, fixed WSL-10003 preparation and verification CLI with no
+  path, uid, port, command, sudo or key material arguments. The
+  parent directory is intentionally NOT created automatically. The
+  command is NOT installed on the Oracle and cannot be invoked
+  through the MCP interface.
+- Tests added: `tests/test_device_code_root_identity.py` (five
+  real-root tests: one-time generation, exact owner/group/modes,
+  wrong owner/mode denial, nonroot denial, tampering and symlink
+  refusal), plus a production-style pinned-management-key test in
+  `test_device_code_root_environment.py`.
+- A first CI implementation failed because the OpenSSH root owner
+  rejected group-readable permissions. A second attempt failed
+  because synthetic UIDs lacked passwd entries. Both were corrected,
+  and the final entire workflow succeeded, including actual
+  root/nonroot key read permissions.
+
+### Production read-only inspection
+
+The Oracle continues to have `ai-lab-gateway` and `tunnel`
+separate Unix accounts. `/etc/ai-lab-gateway` exists as
+root:ai-lab-gateway mode 0750; the candidate
+`/etc/ai-lab-gateway/device-code-keys` directory and candidate
+apply socket do NOT exist. `setpriv` and `ssh-keygen` exist.
+Existing source-code assumptions about real `authorized_keys`
+and `known_hosts` locations have not yet been reconciled with
+their actual root-owned production paths, so even a correct key
+alone does NOT make root apply deployable.
+
+### Open prerequisites and next task
+
+1. Inspect and reconcile **actual** Oracle SSH/authorized_keys/
+   known_hosts/registry paths, service users, effective sshd policy
+   and the WSL target's real sshd host public key. Prior preflight
+   constants may not match the current Oracle filesystem. Fail
+   closed until root independently verifies the specific files.
+2. Build a supervised *root-only* installation package/checklist,
+   with verified release hash, immutable inputs, journal root directory
+   and ready-to-test dry-run. No remote privileged operation without
+   explicit human/admin action.
+3. Integrate candidate offer staging with this root-owned
+   management public key. The older nonroot laboratory candidate
+   generator still produces its own separate key; it is NOT
+   automatically connected to the root identity.
+4. Enable public HTTPS device-code endpoints and Auth0-confirmed MCP
+   only after the independent consent boundary and broker have been
+   deployed and verified.
+5. Configure the target WSL, validate 10003 positive/negative SSH
+   tests, on-demand reconnect and rollback while preserving old
+   10002, then perform separately authorized registry cutover.
+
+The new code has NOT created keys on the real Oracle, changed
+production SSH files, started 10003, granted sudo, or revoked
+the existing WSL v1 account or tunnel.
