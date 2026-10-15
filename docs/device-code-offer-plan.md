@@ -171,3 +171,59 @@ and verify it before connection is considered trusted. Keep both WSL port
 installation, test candidate 10003 and perform controlled cutover only after
 rollback/reconnect/negative tests. The new device-code public API and MCP
 consent/confirmation remain not deployed.
+
+
+## Checkpoint — 2026-10-15: crash journal, read-only approval handoff and root preflight
+
+Verified in GitHub Actions:
+https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38795669180
+**88 isolated device-code tests passed, zero failures**, including six
+new crash-journal tests, five approval-handoff tests and five root-policy
+preflight tests. Prior 72-test result remains historical.
+
+New modules and work:
+- src/ai_lab_gateway/device_code_candidate_journal.py: nonroot-only,
+  crash-recoverable two-file mock SSH transaction. A private durable JSON
+  journal is fsync'ed before either replace; recovery uses an exclusive
+  flock and checks exact original or planned-new content digests, refusing
+  unexpected external changes. A pending journal blocks new installation.
+  Tests simulate abrupt death after the first or second file replacement,
+  explicit recovery, corruption, concurrent modification and replay.
+  The older mock rehearsal now uses this journaled transaction.
+- src/ai_lab_gateway/device_code_approval_handoff.py: separate,
+  read-only Unix approval-handoff prototype with SO_PEERCRED, exact
+  request-only schema and strict UID gate. It returns ONLY the approved
+  candidate's public identities and immutable offer. It exposes no approve,
+  root, provision, activate or SSH mutation actions. Tests exercise a real
+  Unix socket, wrong UID, expiry, nonexistent approval, forbidden inputs,
+  private socket permissions and sensitive-field exclusion.
+- src/ai_lab_gateway/device_code_root_preflight.py: pure/read-only WSL
+  candidate policy gate. It compares the handoff with independently
+  established Gateway SSH host key, actual sshd target host key, generated
+  management public key, exact Restricted/on-demand mode and protected
+  registry (existing WSL port 10002, candidate unassigned 10003). Tests
+  cover identity replacement, privilege escalation, duplicate registry
+  devices, occupied assigned ports, malformed entries and pin mismatch.
+
+Implementation is in the existing plan: restricted-first Linux v2 pairing
+starting with the already registered WSL, not OpenWrt, native Windows or
+multiuser.
+
+**Not deployed, not production-root-capable.** The journal only modifies
+two 0600 mock files in a nonroot sandbox. Crash testing uses injected
+process-death exceptions, not physical VM failure. The approval handoff
+is a nonroot laboratory socket; production must allow ONLY the actual
+root-owned installer UID and keep the pairing store privately owned by
+its independent service. Root-preflight inputs must originate from
+root-owned trusted sources; the pure validator does not authenticate those
+sources itself and does not reserve a listening port.
+
+**Production blocker remains:** build/review/authorize a true independent
+root-owned service with peer UID confinement, controlled secure source paths,
+port reservation, independently verified human approval, real Linux file
+ownership, crash-safe rollback and audit. Verify target sshd's real host
+identity, install only the WSL 10003 candidate, run positive and negative
+SSH tests and reconnect/rollback before registry switch. Do not turn
+the lab store's provisioner_verified Boolean into a trusted root permission.
+Do not grant sudo on pairing or revoke WSL 10002. Public device-code API and
+MCP confirmation are still not live.
