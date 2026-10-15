@@ -45,15 +45,17 @@ class LabServerTests(unittest.TestCase):
             origin=http.split("=",1)[1]
             socket=Path(ipc.split("=",1)[1])
             result=subprocess.run(
-                [sys.executable,str(CLIENT),
+                [sys.executable,"-S",str(CLIENT),
                  "--base-url",origin,
                  "--device-id","new-linux-process-01",
                  "--name","Linux de outra máquina",
                  "--state-dir",str(self.root/"new-user-ssh"/"device-code"),
-                 "--host-key",str(self.host)+".pub","--no-wait"],
+                 "--no-wait"],
                 capture_output=True,text=True,timeout=18,check=False,env=env)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn("Conectar dispositivo",result.stdout)
+            self.assertTrue((self.root/"new-user-ssh"/"device-code"/"host-ed25519").is_file())
+            self.assertTrue((self.root/"new-user-ssh"/"device-code"/"host-ed25519.pub").is_file())
             code=re.search(r"Código: ([A-Z2-9]{4}-[A-Z2-9]{4})",
                            result.stdout).group(1)
             found=call_operator_lookup(path=socket,
