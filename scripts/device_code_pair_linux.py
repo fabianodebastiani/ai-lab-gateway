@@ -29,6 +29,12 @@ import urllib.parse
 import urllib.request
 
 VERSION = "ai-lab-device-code-v1"
+OFFER_VERSION = "ai-lab-ssh-offer-v1"
+OFFER_FIELDS = frozenset({"version", "request_id", "device_id", "access_mode",
+    "persistent", "gateway_host", "gateway_ssh_port", "gateway_tunnel_user",
+    "gateway_ssh_host_key", "gateway_management_public_key", "reverse_listen_host",
+    "reverse_listen_port", "management_user", "device_tunnel_fingerprint",
+    "device_host_fingerprint"})
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{2,47}$")
 CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$")
@@ -67,6 +73,86 @@ def ed25519_public(value: str) -> str:
 def fingerprint(public: str) -> str:
     raw = base64.b64decode(public.split()[1], validate=True)
     return "SHA256:" + base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+
+
+
+def load_trusted_gateway_host_key(path: Path | None) -> str:
+    """Read a locally protected pin, not a key from the enrollment response."""
+    if path is None:
+        raise PermissionError("trusted Gateway SSH host key is required")
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid not in (0, os.geteuid())
+            or info.st_mode & 0o022):
+        raise PermissionError("untrusted Gateway SSH host key pin file")
+    raw = path.read_bytes()
+    if len(raw) > 1024:
+        raise ValueError("oversized SSH host key pin")
+    return ed25519_public(raw.decode("ascii").strip())
+
+
+def validate_connection_offer(offer: object, *, request_id: str,
+                              device_id: str, persistent: bool, tunnel_key: str,
+                              host_key: str, trusted_gateway_host_key: str) -> dict:
+    """Validate a candidate public offer. NEVER install SSH configuration."""
+    if not isinstance(offer, dict) or frozenset(offer) != OFFER_FIELDS:
+        raise ValueError("unexpected SSH offer fields")
+    expected = {
+        "version": OFFER_VERSION, "request_id": request_id,
+        "device_id": device_id, "access_mode": "restricted",
+        "persistent": persistent, "gateway_host": "gateway.debasti.com",
+        "gateway_ssh_port": 22, "gateway_tunnel_user": "tunnel",
+        "reverse_listen_host": "127.0.0.1", "management_user": "ai-gateway",
+        "device_tunnel_fingerprint": fingerprint(ed25519_public(tunnel_key)),
+        "device_host_fingerprint": fingerprint(ed25519_public(host_key)),
+    }
+    for name, value in expected.items():
+        if type(offer[name]) is not type(value) or offer[name] != value:
+            raise PermissionError("SSH offer does not match verified device request")
+    port = offer["reverse_listen_port"]
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError("invalid reverse SSH listener port")
+    pin = ed25519_public(trusted_gateway_host_key)
+    for name in ("gateway_ssh_host_key", "gateway_management_public_key"):
+        canonical = ed25519_public(offer[name])
+        if offer[name] != canonical:
+            raise ValueError("noncanonical SSH public key")
+    if offer["gateway_ssh_host_key"] != pin:
+        raise PermissionError("Gateway SSH identity differs from trusted key pin")
+    if offer["gateway_management_public_key"] == pin:
+        raise PermissionError("Gateway management and SSH host keys must differ")
+    if len(json.dumps(offer, sort_keys=True)) > MAX_REPLY:
+        raise ValueError("oversized SSH offer")
+    return dict(offer)
+
+
+def validate_poll_response(response: object, *, request_id: str,
+                           device_id: str, persistent: bool,
+                           tunnel_key: str, host_key: str,
+                           trusted_gateway_host_key: str | None) -> dict | None:
+    """Check session binding and optional offer before acting on poll state."""
+    if not isinstance(response, dict):
+        raise ValueError("invalid poll response")
+    fields = {"status", "request_id", "access_mode"}
+    if (not fields <= response.keys()
+            or not response.keys() <= fields | {"connection_offer"}
+            or response["request_id"] != request_id
+            or response["access_mode"] != "restricted"):
+        raise PermissionError("unbound pairing poll response")
+    status = response["status"]
+    if status not in ("pending", "proven", "approved", "active", "denied", "expired"):
+        raise ValueError("unexpected pairing status")
+    if "connection_offer" not in response:
+        if status == "active":
+            raise PermissionError("activation without verified SSH offer")
+        return None
+    if status not in ("approved", "active"):
+        raise PermissionError("SSH offer delivered before device approval")
+    if trusted_gateway_host_key is None:
+        raise PermissionError("SSH offer requires an independently trusted host key")
+    return validate_connection_offer(
+        response["connection_offer"], request_id=request_id,
+        device_id=device_id, persistent=persistent, tunnel_key=tunnel_key,
+        host_key=host_key, trusted_gateway_host_key=trusted_gateway_host_key)
 
 
 def owned_private_dir(path: Path):
@@ -216,7 +302,8 @@ def validate_challenge(reply: dict, *, device_id: str,
 
 
 def run(*, url: str, device_id: str, name: str, persistent: bool,
-        state_dir: Path, host_key_path: Path, wait: bool) -> int:
+        state_dir: Path, host_key_path: Path, wait: bool,
+        trusted_gateway_host_key_path: Path | None = None) -> int:
     if not ID_PATTERN.fullmatch(device_id) or not 1 <= len(name.strip()) <= 80:
         raise ValueError("invalid device identity")
     target_url = base_url(url)
@@ -256,15 +343,30 @@ def run(*, url: str, device_id: str, name: str, persistent: bool,
     if not wait:
         print("Laboratório: a sessão foi criada e provada; ainda não ativa.", flush=True)
         return 0
+    trusted_key = (load_trusted_gateway_host_key(trusted_gateway_host_key_path)
+                   if trusted_gateway_host_key_path is not None else None)
+    prior_offer = None
     while time.time() < started["expires_at"]:
         time.sleep(POLL_SECONDS)
         result = post(target_url, "/pairing/device/poll", {
             "request_id": started["request_id"],
             "device_secret": started["device_secret"],
         })
-        status = result.get("status")
+        offer = validate_poll_response(
+            result, request_id=started["request_id"], device_id=device_id,
+            persistent=persistent, tunnel_key=tunnel, host_key=host,
+            trusted_gateway_host_key=trusted_key)
+        if offer is not None:
+            if prior_offer is not None and offer != prior_offer:
+                raise PermissionError("SSH offer changed after initial acceptance")
+            if prior_offer is None:
+                print("Oferta SSH pública validada (sem instalar credenciais).", flush=True)
+            prior_offer = offer
+        status = result["status"]
         if status == "active":
-            print("Pareamento ativado pelo Gateway; acesso Restrito.", flush=True)
+            if prior_offer is None:
+                raise PermissionError("activation without verified SSH offer")
+            print("Gateway marcou pareamento ativo; acesso Restrito.", flush=True)
             return 0
         if status in ("denied", "expired"):
             raise PermissionError("pairing denied or expired")
@@ -282,6 +384,8 @@ def main() -> int:
     parser.add_argument("--state-dir", type=Path,
                         default=Path.home() / ".ssh" / "ai-lab-device-code")
     parser.add_argument("--host-key", type=Path, default=HOST_KEY)
+    parser.add_argument("--trusted-gateway-host-key", type=Path,
+                        help="Independent SSH host public key pin obtained securely")
     parser.add_argument("--no-wait", action="store_true", help="Only for staging protocol tests")
     args = parser.parse_args()
     try:
@@ -289,7 +393,8 @@ def main() -> int:
         return run(url=args.base_url, device_id=device_id,
                    name=args.name, persistent=args.persistent,
                    state_dir=args.state_dir, host_key_path=args.host_key,
-                   wait=not args.no_wait)
+                   wait=not args.no_wait,
+                   trusted_gateway_host_key_path=args.trusted_gateway_host_key)
     except (ValueError, PermissionError, FileNotFoundError, RuntimeError,
             TimeoutError, OSError, urllib.error.URLError,
             subprocess.SubprocessError, TypeError, KeyError) as exc:
