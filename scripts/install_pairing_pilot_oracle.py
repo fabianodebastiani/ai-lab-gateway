@@ -90,6 +90,21 @@ def verify_stage():
         raise RuntimeError("reference gateway installation not found")
     if "gateway.debasti.com {" not in CADDY.read_text():
         raise RuntimeError("unexpected Caddy host configuration")
+    # Validate full proposed config before making any backup, ownership or
+    # service change. The real operator's authorization file is deliberately
+    # never printed or copied to the console.
+    proposed_policy = policy_with_enrollment_grant(POLICY.read_bytes())
+    if not json.loads(proposed_policy).get("users"):
+        raise RuntimeError("authorization policy unexpectedly empty")
+    proposed_caddy = caddy_with_pairing(CADDY.read_bytes())
+    check_fd, check_name = tempfile.mkstemp(prefix="ai-lab-v2-caddy-", suffix=".Caddyfile")
+    try:
+        with os.fdopen(check_fd, "wb") as stream:
+            stream.write(proposed_caddy)
+        os.chmod(check_name, 0o600)
+        run("/usr/bin/caddy", "validate", "--config", check_name)
+    finally:
+        os.unlink(check_name)
     current = run("/usr/bin/systemctl", "is-active", *SERVICES)
     if any(x != "active" for x in current.stdout.splitlines()):
         raise RuntimeError("reference services are not healthy")
