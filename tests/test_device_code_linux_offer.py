@@ -218,5 +218,56 @@ class LinuxSSHOfferTests(unittest.TestCase):
                 worker.join(timeout=3)
 
 
+    def test_stage_linux_candidate_does_not_edit_ssh_system_files(self):
+        state = self.root / "linux-state"
+        marker = self.root / "legacy-ssh-untouched"
+        marker.write_text("old tunnel port 10002\n")
+        target = client.stage_local_candidate(
+            self.offer, state_dir=state, request_id=self.req,
+            device_id=self.dev, persistent=False,
+            tunnel_key=self.keys["device_tunnel"],
+            host_key=self.keys["device_host"],
+            trusted_gateway_host_key=self.keys["gateway_host"])
+        self.assertEqual(target.parent, state)
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
+        for p in target.iterdir():
+            self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600)
+        self.assertEqual(json.loads((target/"offer.json").read_text()), self.offer)
+        self.assertEqual((target/"management-authorized_keys.append").read_text(),
+                         self.keys["gateway_manage"] + "\n")
+        self.assertEqual((target/"gateway-known_hosts.append").read_text(),
+                         "gateway.debasti.com " + self.keys["gateway_host"] + "\n")
+        self.assertEqual(marker.read_text(), "old tunnel port 10002\n")
+        self.assertFalse(any("PRIVATE KEY" in p.read_text() for p in target.iterdir()))
+        with self.assertRaises(FileExistsError):
+            client.stage_local_candidate(
+                self.offer, state_dir=state, request_id=self.req,
+                device_id=self.dev, persistent=False,
+                tunnel_key=self.keys["device_tunnel"],
+                host_key=self.keys["device_host"],
+                trusted_gateway_host_key=self.keys["gateway_host"])
+
+    def test_local_staging_rejects_unpinned_offer_without_files(self):
+        state = self.root / "linux-state"
+        with self.assertRaises(PermissionError):
+            client.stage_local_candidate(
+                self.offer, state_dir=state, request_id=self.req,
+                device_id=self.dev, persistent=False,
+                tunnel_key=self.keys["device_tunnel"],
+                host_key=self.keys["device_host"],
+                trusted_gateway_host_key=self.keys["attacker"])
+        self.assertFalse(state.exists())
+        symlink = self.root / "alias-state"
+        symlink.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(PermissionError):
+            client.stage_local_candidate(
+                self.offer, state_dir=symlink, request_id=self.req,
+                device_id=self.dev, persistent=False,
+                tunnel_key=self.keys["device_tunnel"],
+                host_key=self.keys["device_host"],
+                trusted_gateway_host_key=self.keys["gateway_host"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
