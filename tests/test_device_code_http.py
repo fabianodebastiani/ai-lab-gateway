@@ -97,7 +97,7 @@ class DeviceHTTPTests(unittest.TestCase):
         lookup = self.store.lookup(user_code=pending["user_code"],
                          operator_subject="auth0|test-operator")
         self.assertEqual(lookup["request_id"], pending["request_id"])
-        self.assertEqual(lookup["confirmation"], pending["confirmation"])
+        self.assertNotIn("confirmation", lookup)
         with self.assertRaises(PermissionError):
             self.store.confirm(request_id=pending["request_id"],
                 operator_subject="auth0|test-operator",
