@@ -65,6 +65,57 @@ class ProvisionSafetyTests(unittest.TestCase):
             self.mod.validate_approved({**self.request,
                  "tunnel_public_key":"ssh-rsa AAAA"},now=1001)
 
+    def test_candidate_provision_isolated_and_keeps_legacy_registry(self):
+        m=self.mod
+        base=self.root/"isolated"
+        base.mkdir()
+        tunnel=base/"authorized_keys"
+        known=base/"known_hosts"
+        registry=base/"devices.json"
+        keys=base/"keys"
+        candidates=base/"candidates"
+        backup=base/"backups"
+        keys.mkdir()
+        backup.mkdir()
+        tunnel.write_text('permitlisten="127.0.0.1:10002" ssh-ed25519 OLD-TUNNEL\\n')
+        known.write_text("[127.0.0.1]:10002 ssh-ed25519 OLD-HOST\\n")
+        tunnel.chmod(0o600)
+        known.chmod(0o600)
+        registry.write_text(json.dumps({"devices":[{"id":"windows-wsl","tunnel_port":10002}]}))
+        original=registry.read_bytes()
+        uid=os.getuid()
+        gid=os.getgid()
+        patches=[
+            patch.object(m,"TUNNEL_KEYS",tunnel),
+            patch.object(m,"GATEWAY_KNOWN",known),
+            patch.object(m,"REGISTRY",registry),
+            patch.object(m,"GATEWAY_KEYS",keys),
+            patch.object(m,"CANDIDATES",candidates),
+            patch.object(m,"BACKUPS",backup),
+            patch.object(m.os,"geteuid",return_value=0),
+            patch.object(m.os,"chown",return_value=None),
+            patch.object(m.os,"fchown",return_value=None),
+            patch.object(m.pwd,"getpwnam",return_value=SimpleNamespace(pw_uid=uid,pw_gid=gid)),
+            patch.object(m.time,"time",return_value=1001),
+        ]
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for item in patches: stack.enter_context(item)
+            result=m.prepare(self.request)
+        self.assertEqual(result["status"],"candidate_prepared")
+        self.assertEqual(result["port"],10003)
+        self.assertEqual(registry.read_bytes(),original)
+        self.assertIn("10002",tunnel.read_text())
+        self.assertIn("10003",tunnel.read_text())
+        self.assertIn(self.tunnel.split()[1],tunnel.read_text())
+        self.assertIn("10003",known.read_text())
+        self.assertIn(self.host.split()[1],known.read_text())
+        self.assertTrue((keys/"windows-wsl-v2-candidate").is_file())
+        self.assertEqual((keys/"windows-wsl-v2-candidate").stat().st_mode & 0o777,0o600)
+        self.assertEqual((candidates/"windows-wsl.json").stat().st_mode & 0o777,0o600)
+        self.assertIn("OLD-TUNNEL",next(backup.glob("*/authorized_keys.original")).read_text())
+        self.assertIn("OLD-HOST",next(backup.glob("*/known_hosts.original")).read_text())
+
     def test_candidate_preflight_does_not_modify_production(self):
         m=self.mod
         paths = {
