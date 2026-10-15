@@ -238,6 +238,15 @@ def automatic_device_id(state_dir: Path, *, hostname: str | None = None) -> str:
     return value
 
 
+class _RejectPairingRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward a device secret or proof to a redirect target."""
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        raise PermissionError("pairing HTTP redirects are forbidden")
+
+
+_PAIRING_HTTP = urllib.request.build_opener(_RejectPairingRedirect)
+
+
 def post(url: str, path: str, data: dict) -> dict:
     endpoint = base_url(url) + path
     payload = json.dumps(data, separators=(",", ":")).encode("utf-8")
@@ -245,7 +254,7 @@ def post(url: str, path: str, data: dict) -> dict:
         raise ValueError("oversized pairing payload")
     request = urllib.request.Request(endpoint, data=payload, method="POST",
              headers={"Content-Type": "application/json", "Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with _PAIRING_HTTP.open(request, timeout=10) as response:
         if response.status not in (200, 201):
             raise RuntimeError("unexpected pairing HTTP status")
         raw = response.read(MAX_REPLY + 1)
