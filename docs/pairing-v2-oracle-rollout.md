@@ -55,7 +55,12 @@ sudo find /root/ai-lab-v2-rollout -maxdepth 1 -type f -exec chmod 0600 -- {} +
 sudo sha256sum /root/ai-lab-v2-rollout/install_pairing_pilot_oracle.py
 ```
 
-**Compare** o hash exibido ao valor acima. Se não coincidir, pare e não execute.\nAs duas chamadas `find` em `/root` são intencionais: evitam que o shell\ndo usuário `ubuntu` tente expandir um `*` sem permissão de leitura.\n\n**Fase 1:** execute somente este bloco de preparação e o `--check`.\nEnvie a saída do `--check` antes de seguir para a **fase 2** (`--apply`).
+**Compare** o hash exibido ao valor acima. Se não coincidir, pare e não execute.
+As duas chamadas `find` em `/root` são intencionais: evitam que o shell
+do usuário `ubuntu` tente expandir um `*` sem permissão de leitura.
+
+**Fase 1:** execute somente este bloco de preparação e o `--check`.
+Envie a saída do `--check` antes de seguir para a **fase 2** (`--apply`).
 
 Em seguida:
 
