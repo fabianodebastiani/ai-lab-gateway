@@ -477,9 +477,11 @@ class DeviceCodeStore:
                 or row["provision_state"] != "not_provisioned"
                 or offered is not None):
             raise PermissionError("no approved, unexpired, unprovisioned device")
-        return {name: row[name] for name in (
+        snapshot = {name: row[name] for name in (
             "request_id", "device_id", "tunnel_public_key",
-            "host_public_key", "persistent", "expires_at")}
+            "host_public_key", "expires_at")}
+        snapshot["persistent"] = bool(row["persistent"])
+        return snapshot
 
     def stage_connection_offer(
             self, *, request_id: str, offer: dict,
