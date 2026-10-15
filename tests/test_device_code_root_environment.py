@@ -172,6 +172,21 @@ class FixedRootEnvironmentTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             loopback_port_available(bind_port=10002)
 
+    def test_root_verified_management_public_key_can_replace_old_test_layout(self):
+        public = self.keys["management"]
+        files = {k: v for k, v in self.files.items()
+                 if k not in ("management_key", "management_private_key")}
+        accepted = inspect_candidate_environment(
+            self.candidate, files=files, owners=self.owners,
+            effective_sshd=SSHD, port_is_free=True,
+            root_verified_management_public_key=public)
+        self.assertEqual(accepted["status"], "candidate_preflight_ok")
+        with self.assertRaises(PermissionError):
+            inspect_candidate_environment(
+                self.candidate, files=files, owners=self.owners,
+                effective_sshd=SSHD, port_is_free=True,
+                root_verified_management_public_key=self.keys["different"])
+
     def test_rejects_live_registry_reassignment_without_modification(self):
         file = self.files["registry"]
         before = file.read_text()
