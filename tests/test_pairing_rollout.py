@@ -70,6 +70,30 @@ class RolloutTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.m.caddy_with_pairing(result.encode())
 
+    def test_health_retry_handles_delayed_service_start(self):
+        import subprocess
+        from types import SimpleNamespace
+        delayed = subprocess.CalledProcessError(7, ["curl", "health"])
+        with patch.object(self.m, "run", side_effect=[
+            delayed, delayed, SimpleNamespace(stdout='{"status":"ok"}')
+        ]) as call, patch.object(self.m.time, "sleep") as sleep:
+            reply = self.m.wait_for_health("http://127.0.0.1:8002/pairing/health",
+                                           timeout_seconds=5)
+        self.assertEqual(reply["status"], "ok")
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_health_timeout_is_finite_and_fails_closed(self):
+        import subprocess
+        with patch.object(self.m, "run", side_effect=subprocess.CalledProcessError(
+            7, ["curl", "health"]
+        )), patch.object(self.m.time, "monotonic", side_effect=[10.0, 10.4, 11.1]), patch.object(
+            self.m.time, "sleep"
+        ):
+            with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+                self.m.wait_for_health("http://127.0.0.1:8002/pairing/health",
+                                       timeout_seconds=1)
+
     def test_check_refuses_unprivileged_execution(self):
         with patch.object(self.m.os, "geteuid",return_value=1003):
             with self.assertRaises(PermissionError):
