@@ -104,7 +104,27 @@ class DeviceCodeStore:
             raise ValueError("a server-owned >=256-bit HMAC key is required")
         self.path = Path(sqlite_path)
         self.key = hmac_key
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # SQLite sidecars (journals/WAL) must be protected too, so require a
+        # private directory owned by the service identity, not just a 0600 DB.
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent_stat = self.path.parent.lstat()
+        if (not stat.S_ISDIR(parent_stat.st_mode)
+                or parent_stat.st_uid != os.geteuid()
+                or stat.S_IMODE(parent_stat.st_mode) & 0o077):
+            raise PermissionError("pairing database directory must be owner-only 0700")
+        try:
+            fd = os.open(str(self.path),
+                         os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+                         0o600)
+        except FileExistsError:
+            pass
+        else:
+            os.close(fd)
+        file_stat = self.path.lstat()
+        if (not stat.S_ISREG(file_stat.st_mode)
+                or file_stat.st_uid != os.geteuid()
+                or stat.S_IMODE(file_stat.st_mode) != 0o600):
+            raise PermissionError("pairing SQLite file must be owner-only 0600")
         with closing(self._db()) as db, db:
             db.execute("""CREATE TABLE IF NOT EXISTS sessions(
               request_id TEXT PRIMARY KEY,
