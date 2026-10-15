@@ -1,5 +1,6 @@
 """Real root-only SSH identity setup in a disposable CI-owned directory."""
 import os
+import pwd
 from pathlib import Path
 import stat
 import subprocess
@@ -21,8 +22,11 @@ class RootCandidateIdentityTests(unittest.TestCase):
         self.root = Path(temporary.name)
         # Model a world-traversable /etc; the candidate subtree stays 0750.
         self.root.chmod(0o755)
-        self.gateway_uid = 21320
-        self.group_gid = 21321
+        # ssh-keygen resolves its effective UID via /etc/passwd: use a
+        # *real* unprivileged CI account, not an invented numeric UID.
+        nobody = pwd.getpwnam("nobody")
+        self.gateway_uid = nobody.pw_uid
+        self.group_gid = nobody.pw_gid
         self.base = self.root / "only-identity"
         self.base.mkdir(mode=0o750)
         os.chown(self.base, 0, self.group_gid)
@@ -94,7 +98,7 @@ class RootCandidateIdentityTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.prepare()
         with self.assertRaises(PermissionError):
-            verify_wsl_management_identity(group_gid=self.group_gid, base=self.base)
+            verify_wsl_management_identity(group_gid=self.group_gid, gateway_uid=self.gateway_uid, base=self.base)
         self.assertEqual(self.legacy.read_text(), "old identity preserved")
 
 
