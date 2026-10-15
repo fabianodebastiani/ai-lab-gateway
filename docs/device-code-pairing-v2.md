@@ -1,0 +1,190 @@
+# AI Lab Gateway v2 — pairing by a code shown on the device
+
+**Decision:** Accepted 2026-10-15 (ADR-029).  
+**Implementation status:** design and non-production prototype work; NOT a
+statement that the feature is available on the live Oracle gateway.
+
+## User experience — two different computers
+
+The ChatGPT user may be on a phone, a different laptop, or in another
+network. They have already authenticated to our MCP server through Auth0.
+The Linux target is **never required** to have been accessed by MCP, to
+have any preexisting AI Lab SSH account, or to be reachable inbound.
+
+1. On the unknown Linux, run the same public installation command every time.
+   The URL contains **no access token** or account-specific data. Download
+   and verify a signed, versioned installer before permitting privileged
+   changes. The installed client generates fresh per-device identities.
+2. The client makes a TLS-authenticated, outbound request to the public
+   gateway **without authenticating as a user**. The gateway records a
+   temporary request but grants **zero** device trust or SSH access.
+3. The terminal shows a human-friendly code, such as
+   `K7M2-P9Q4` (example only), and a short confirmation string/fingerprint.
+   It then waits; the device can poll using an unrelated, long secret.
+4. The person tells ChatGPT: "Conectar dispositivo K7M2-P9Q4."
+   ChatGPT calls `pairing_lookup_code` using its **real, validated**
+   Auth0 principal, `gateway:control` scope and `device_enroll` grant.
+5. ChatGPT displays host name, platform, key fingerprint/confirmation
+   string and access starting as **Restrito**; the user compares the same
+   confirmation string on the Linux terminal and explicitly authorizes
+   this **one immutable request**.
+6. An independent user-consent boundary approves the exact request. A mere
+   model-generated phrase or tool call is not accepted as proof of human
+   confirmation. Use a real host-provided action confirmation/step-up or
+   cryptographically verifiable human-origin signal; where unavailable,
+   retain the separate browser approver as a mandatory fallback.
+7. A narrowly privileged server-side provisioner issues isolated management
+   credentials and a loopback-only reverse SSH tunnel binding. The device
+   receives only the gateway's **public** key/verified SSH host identity
+   and local configuration instructions, never a gateway private key.
+   The server receives the device public key and a cryptographic proof of
+   possession; the device private key remains on the device.
+8. The device connects outbound through NAT/CGNAT. Gateway tests target
+   host identity, key rejection, non-root identity, command timeouts,
+   reconnect/persistence and rollback. Only after testing is its
+   status **active**. The short code and polling secret expire/are consumed.
+9. Onboarding always starts **Restrito**. Changing to **Parcial** or
+   **Irrestrito** requires a separate, audited privilege grant. The
+   `persistent` flag is an unrelated per-device on/off setting.
+
+### Example target terminal (illustrative, not yet deployable)
+
+```text
+AI Lab Gateway — Vincular dispositivo
+Linux: lab-ubuntu-01
+Chave local Ed25519: pronta
+Código: K7M2-P9Q4
+Confirmação: FAROL-LAGO-LIVRO (illustrative)
+
+No ChatGPT: "Conectar dispositivo K7M2-P9Q4"
+Aguardando confirmação autenticada...
+```
+
+The fixed bootstrap address (e.g. `https://gateway.debasti.com/install.sh`)
+and installer release signature/verification process are **planned**, not
+currently published for production. Do not present an unverified
+`curl | sudo bash` command to users.
+
+## Trust boundaries
+
+| Actor | May | Must NOT |
+| --- | --- | --- |
+| Unauthenticated Linux | Request/poll its own bounded pending session over TLS | Activate itself, enumerate users, edit registry, obtain management private keys |
+| MCP operator (Auth0) | Discover a code/request, inspect public identity, initiate explicit confirmation | Bypass independent user-consent evidence, grant root by pairing |
+| Consent verifier | Certify one authenticated human confirmation bound to immutable request and digest | Give blanket/transferable approval to model |
+| Narrow root provisioner | Install tightly scoped per-device public keys, pin verified host identity, atomically update registry after tests | Provide generic shell/sudo to MCP; leak keys |
+| Enrolled device | Create outbound SSH tunnel on assigned 127.0.0.1 port | Choose arbitrary listeners, manage other devices, change root privileges |
+
+## Two tokens: user code and device secret
+
+The pairing backend, not the model, generates:
+
+- **User code:** 8 random Base32 symbols, grouped as four/four. The alphabet
+  excludes ambiguous letters/digits if practical. A full uniformly random
+  8-symbol code from 32 symbols provides **40 bits of entropy**; changing
+  alphabet size requires re-evaluating entropy. Validate normalization
+  safely (case/space/dash) without leaking whether unauthenticated guesses
+  match; store a keyed digest/HMAC rather than plaintext code.
+- **Device secret:** independent, cryptographically secure >=256-bit
+  URL-safe token, **never shown in ChatGPT**. It is a poll/capability
+  credential tied to one pending device session, and stored only as a
+  digest at the gateway. The secret permits *status* queries but never
+  changes approval or grants access.
+
+The two must be independent: knowing one never reveals the other. Rotate
+identifiers every new attempt; 10-minute expiry, finite attempts, global
+plus source/request/operator quotas, audits without token logging,
+idempotency, and cache-safe HTTP headers. The code alone cannot complete
+enrollment. TTL expiration and revocation must take effect at every
+transition and polling endpoint, including after an approval.
+
+**Code-stealing and session substitution:** A person who reads another
+person's terminal code may attempt to bind the wrong user to the device.
+Before confirmation, compare a server-bound phrase or SSH fingerprint
+visually on **both** the target and authenticated ChatGPT. Exact request,
+public keys and owner become immutable at first claim. A second user or
+unexpected duplicate request cannot silently replace the first.
+Explicitly test this attack in addition to guess-rate limits.
+
+### Ed25519 possession proof
+
+The Linux generates a fresh Ed25519 identity and authenticates it with
+a challenge-response. One lightweight option is OpenSSH `ssh-keygen -Y
+sign/verify` with canonical challenge bytes, since the target must
+already support SSH. A Python `cryptography` implementation may serve
+as the laboratory verifier, but the deployable client should not
+silently depend on extra packages without installing/verifying them.
+The challenge must bind a random server nonce, request ID, normalized
+device ID, protocol version, role, expiry and the hashes of **both**
+the tunnel and host public keys. Reject mismatched keys, altered
+fields, replayed nonces, invalid signatures and substituted requests.
+Do not accept TLS alone as a device identity proof.
+
+## Proposed API — *not yet live*
+
+```text
+POST /pairing/device/start          anonymous, rate limited; returns
+                                    request_id + user_code + device_secret
+                                    + server nonce (no authorization)
+POST /pairing/device/prove          device_secret + signed challenge proof
+GET  /pairing/device/poll           device_secret; throttled, no account info
+MCP  pairing_lookup_code(code)      OAuth gateway:control + device_enroll
+MCP  pairing_confirm(request_id,
+                     confirmation)  consent-attested explicit authorization
+MCP  pairing_deny(request_id)       authenticated operator
+LOCAL provision_candidate(request)  protected root-only provisioning after approval
+LOCAL verify_activate(request)      exact SSH verification + atomic registry update
+```
+
+Separately version protocol structures. The existing live
+`/pairing/claim`, `pairing_invite` and approval web must remain
+unmodified until the new API is deployed and verified. No compatibility
+or live endpoint is promised by this document.
+
+## Test plan
+
+**Unit/integration (no root):**
+
+- Codes/token generated independently and never logged; 40-bit code
+  alphabet, single-use, expiry, replay, collisions and quotas.
+- Unauthorized/anonymous API cannot approve, enumerate users or expose keys.
+- Auth0 subject and exact request bound to one user; malformed code does
+  not reveal existence; rate limiting per IP/operator/device.
+- Ed25519 valid signature passes, wrong key/modified challenge/replay fails.
+- Wrong confirmation phrase/fingerprint fails. Model-only requests cannot
+  self-approve without host-attested user confirmation.
+- Concurrent claims/approvals yield exactly one terminal transition.
+- Persistence preference is independent, Restricted enforced, no sudo.
+
+**End-to-end staging:**
+
+- Single existing WSL Ubuntu on `LAPTOP-5RJJ0KBM`. Keep active v1
+  management path on loopback 10002 while testing v2 candidate 10003.
+  A separately generated v2 tunnel key already exists; no separate WSL
+  distribution is permitted for this pilot. Do not revoke v1 credentials
+  before successful v2 SSH/mcp/reconnect/rollback tests.
+- At least one **truly virgin** Linux later, containing no prior gateway
+  user, keys, authorized_keys, registry record or MCP access. Prove
+  local prerequisites, secure download, device code, approval, new
+  credentials, outbound tunnel and finished MCP execution.
+- Attacker simulations: guessed code, code stolen by another user,
+  tampered download, wrong SSH host key, revoked invitation,
+  expired consent, duplicate device ID and disconnected network.
+- Record redacted logs, acceptance evidence, rollback steps and
+  operative status in GitHub.
+
+## Existing deployment checkpoint (2026-10-15)
+
+- v2 browser-approved WSL request:
+  `n-OXzoFmx3v93hTuNuCUVmOa` approved; `restricted`,
+  `persistent=false`.
+- Oracle candidate gateway key and `permitlisten=127.0.0.1:10003`
+  were staged; the v1 `windows-wsl` registry still points to 10002.
+- WSL new tunnel key fingerprint:
+  `SHA256:WNQwcglksL5gtUlmVKWv1rByzFlJbffK1ZJeqbM8EPo`.
+- An earlier attempt to transfer the **public** management key via
+  remote tooling was blocked by host security controls. A separate
+  operator-run mechanism is required to complete v2 SSH acceptance;
+  do not try to bypass controls or leave persistent root access.
+
+See [WSL migration notes](wsl-v2-migration.md).
