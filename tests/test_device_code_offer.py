@@ -69,6 +69,7 @@ class SSHOfferTests(unittest.TestCase):
     def stage(self,manifest=None):
         return self.store.stage_connection_offer(
             request_id=self.started["request_id"],offer=manifest or self.offer(),
+            trusted_gateway_host_public_key=self.identities["gateway_host"][1],
             provisioner_verified=True,now=105)
 
     def test_public_offer_requires_separate_approval_and_privileged_source(self):
@@ -77,7 +78,9 @@ class SSHOfferTests(unittest.TestCase):
         self.prove_and_approve()
         with self.assertRaises(PermissionError):
             self.store.stage_connection_offer(request_id=self.started["request_id"],
-                offer=self.offer(),now=105)
+                offer=self.offer(),
+                trusted_gateway_host_public_key=self.identities["gateway_host"][1],
+                now=105)
         self.assertEqual(self.stage()["status"],"candidate_staged")
 
     def test_only_device_secret_gets_offer_and_only_after_approval(self):
@@ -131,7 +134,9 @@ class SSHOfferTests(unittest.TestCase):
         self.prove_and_approve()
         with self.assertRaises(PermissionError):
             self.store.stage_connection_offer(request_id=self.started["request_id"],
-                 offer=self.offer(),provisioner_verified=True,now=701)
+                 offer=self.offer(),
+                 trusted_gateway_host_public_key=self.identities["gateway_host"][1],
+                 provisioner_verified=True,now=701)
 
     def test_offer_schema_without_store(self):
         offer=self.offer()
