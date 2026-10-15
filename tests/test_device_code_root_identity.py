@@ -85,12 +85,12 @@ class RootCandidateIdentityTests(unittest.TestCase):
         pub.write_text("ssh-ed25519 not-a-key")
         with self.assertRaises((PermissionError, ValueError)):
             verify_wsl_management_identity(
-                group_gid=self.group_gid, base=self.base)
+                group_gid=self.group_gid, gateway_uid=self.gateway_uid, base=self.base)
         pub.write_bytes(before)
         pub.chmod(0o666)
         with self.assertRaises(PermissionError):
             verify_wsl_management_identity(
-                group_gid=self.group_gid, base=self.base)
+                group_gid=self.group_gid, gateway_uid=self.gateway_uid, base=self.base)
 
     def test_symlinked_final_dir_cannot_be_adopted_as_candidate(self):
         alias = self.base / PILOT
