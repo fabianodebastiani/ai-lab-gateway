@@ -188,3 +188,69 @@ was requested. Future steps require a signed virgin Linux installer,
 trusted reverse proxy, host-verifiable human consent (not a bare model
 tool argument), narrow SSH provisioner, supervised deployment, then
 real on-device end-to-end acceptance.
+
+
+## Checkpoint — 2026-10-15 ~07:xx BRT: dependency-free client + consent proof
+
+This section supersedes earlier **historical** notes describing
+a target-side Python `cryptography` dependency, the need for a prior
+OpenSSH server host key, or a read-only operator socket.
+
+**Built and committed:**
+- `src/ai_lab_gateway/sshsig.py` strictly verifies genuine
+  OpenSSH `ssh-keygen -Y sign` SSHSIG Ed25519 signatures,
+  exact SSH public key, namespace, challenge, signature and version.
+  Previous raw signatures remain supported for protocol compatibility.
+- `scripts/device_code_pair_linux.py` is now a **Python stdlib plus
+  ssh-keygen** client; initial handshake neither needs local root nor a
+  configured sshd. It generates isolated local tunnel/host Ed25519
+  identities, persisted random device ID, verifies versioned challenge
+  and sends armored SSHSIG proof. Its pairing code is separate from
+  the terminal-only second confirmation PIN.
+- `scripts/install_ai_lab_device.sh` is a version-pinned experimental
+  HTTPS bootstrap, fixed Git SHA
+  `536f5e1ce5fa885d9aa1d757182a01c10d751ae5`,
+  and verified SHA256
+  `c25b3ad332c439e49aa9946cd0fd1330c68b979ed34237a6665e88627f8594d3`.
+  It checks dependencies, uses a private temporary directory and
+  runs without sudo. It does not assume an existing Linux management
+  account or SSH tunnel. The bootstrap itself is protected by its
+  HTTPS source, **not independently release-signed**.
+- `src/ai_lab_gateway/device_code.py`: terminal confirmation
+  code (40 bits) saved as a keyed digest rather than plaintext, not
+  disclosed by operator lookup, Auth0 subject/request binding and
+  **four failed confirmation attempts permanently block approval**.
+  This is distinct from using a model-supplied consent Boolean.
+- `src/ai_lab_gateway/device_code_operator.py` supports strictly
+  `lookup` and PIN-based `confirm` over UID-locked Unix socket,
+  but has no direct SSH provision/activation privileges.
+- `src/ai_lab_gateway/server.py` registers
+  `pairing_lookup_code` and `pairing_confirm_code` only behind
+  `AI_LAB_DEVICE_CODE_MCP_ENABLED=1`, default OFF; real OAuth
+  `gateway:control` scope and `device_enroll` remain required.
+- Additional tests `tests/test_device_code_sshsig.py` and
+  `tests/test_device_code_installer.py`; updated existing
+  tests for a second terminal-only PIN.
+
+**Verified:** **35/35 tests passed on the original Ubuntu WSL**
+`windows-wsl`, including signed SSHSIG, tamper/replay rejection,
+a subprocess client using `python -S` with no third-party Python
+site packages and no preexisting host SSH key, non-root HTTPS download
+with SHA256 pin and brand-new HOME, rejection of hash tampering,
+separate HTTP service/client process, operator lookup via Unix socket,
+explicit second-PIN confirmation and wrong-code rate limiting.
+
+**Not done / not production:** The new public API, protected Unix socket
+and feature-gated MCP tools have NOT been deployed to Oracle; the
+permanent Gateway `/install.sh` URL is NOT live. The official
+signature-verification channel, unattended SSH credential handoff,
+management user creation, systemd tunnel setup, SSH activation checks,
+and end-to-end enrollment of a truly separate virgin Linux machine
+remain to be implemented. Prior SSH v1 is still active through port
+10002; WSL v2 10003 still unactivated. No production registry,
+caddy, sudoers, or device keys changed.
+
+Next step: design and test the root-owned, allowlisted SSH key and
+registry provisioner plus public-key delivery through the
+device-secret-bound poll channel, deploy only under supervised short
+maintenance approval and verify real OAuth and tenant boundaries.
