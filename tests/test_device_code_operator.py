@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives import serialization
 from ai_lab_gateway.device_code import DeviceCodeStore
 from ai_lab_gateway.device_code_operator import (
     OperatorProtocol, create_operator_socket, call_operator_lookup,
+    call_operator_confirm,
 )
 
 
@@ -65,18 +66,19 @@ class OperatorTests(unittest.TestCase):
                                     user_code=p["user_code"])
         self.assertEqual(result["request_id"],p["request_id"])
         self.assertEqual(result["access_mode"],"restricted")
-        self.assertEqual(result["confirmation"],p["confirmation"])
+        self.assertNotIn("confirmation",result)
         self.assertNotIn("device_secret",result)
         self.assertNotIn("tunnel_public_key",result)
         with self.assertRaises(PermissionError):
             call_operator_lookup(path=self.path,subject="auth0|another",
                                  user_code=p["user_code"])
-        # Only an authenticated, consent-attested operation outside this IPC
-        # may approve, and the store itself rejects model-only confirmation.
+        # A bare AI text affirmation cannot satisfy the terminal-only code.
         with self.assertRaises(PermissionError):
-            self.store.confirm(request_id=p["request_id"],
-                               operator_subject="auth0|operator",
-                               confirmation=p["confirmation"])
+            call_operator_confirm(path=self.path, subject="auth0|operator",
+                  request_id=p["request_id"], confirmation="AAAA-AAAA")
+        approved=call_operator_confirm(path=self.path, subject="auth0|operator",
+                  request_id=p["request_id"], confirmation=p["confirmation"])
+        self.assertEqual(approved["status"],"approved")
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode),0o600)
 
     def test_fake_peer_uid_is_rejected_before_json_or_subject(self):
@@ -91,7 +93,7 @@ class OperatorTests(unittest.TestCase):
 
     def test_approval_and_provision_actions_not_implemented(self):
         op=OperatorProtocol(self.store)
-        for action in ("confirm","approve","activate","root","enroll"):
+        for action in ("approve","activate","root","enroll"):
             self.assertEqual(op.dispatch({
                 "action":action,"subject":"auth0|user",
                 "user_code":"ABCD-EFGH"
