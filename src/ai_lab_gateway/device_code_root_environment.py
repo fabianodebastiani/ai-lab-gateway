@@ -17,6 +17,7 @@ from pathlib import Path
 import pwd
 import socket
 import stat
+import subprocess
 
 from .device_code_root_preflight import preflight_wsl_candidate
 from .enrollment import _validate_public_key
@@ -26,6 +27,7 @@ PROD_KNOWN_HOSTS = Path("/var/lib/ai-lab-gateway/.ssh/known_hosts")
 PROD_REGISTRY = Path("/etc/ai-lab-gateway/devices.json")
 PROD_GATEWAY_HOST_KEY = Path("/etc/ssh/ssh_host_ed25519_key.pub")
 PROD_MANAGEMENT_KEY = Path("/var/lib/ai-lab-gateway/keys/windows-wsl-v2-candidate.pub")
+PROD_MANAGEMENT_PRIVATE_KEY = Path("/var/lib/ai-lab-gateway/keys/windows-wsl-v2-candidate")
 PORT = 10003
 MAX_FILE = 256 * 1024
 
@@ -56,6 +58,23 @@ def protected_file(path: Path, *, owner_uid: int, modes: frozenset[int],
     if len(raw) > limit:
         raise PermissionError("trusted source too large")
     return raw
+
+
+def verify_management_key_pair(private_path: Path, *,
+                               expected_public: str, owner_uid: int) -> None:
+    """Prove the Gateway actually holds the nonroot management private key.
+
+    The file path and ownership policy must be fixed by root, not supplied
+    by the new device. No secret bytes are returned or logged.
+    """
+    protected_file(private_path, owner_uid=owner_uid,
+                   modes=frozenset({0o600}), limit=16384)
+    result = subprocess.run(
+        ["/usr/bin/ssh-keygen", "-y", "-P", "", "-f", str(private_path)],
+        check=True, capture_output=True, text=True, timeout=7)
+    actual = _validate_public_key(result.stdout.strip())
+    if actual != _validate_public_key(expected_public):
+        raise PermissionError("Gateway management private/public SSH keys differ")
 
 
 def known_hosts_key(raw: bytes, *, endpoint: str) -> str:
@@ -131,7 +150,7 @@ def inspect_candidate_environment(candidate: dict, *, files: dict,
     """
     if not isinstance(files, dict) or set(files) != {
             "authorized_keys", "known_hosts", "registry",
-            "gateway_host_key", "management_key"}:
+            "gateway_host_key", "management_key", "management_private_key"}:
         raise PermissionError("invalid trusted path configuration")
     if not isinstance(owners, dict) or set(owners) != {
             "tunnel", "gateway", "registry", "host"}:
@@ -149,6 +168,10 @@ def inspect_candidate_environment(candidate: dict, *, files: dict,
                                   owner_uid=owners["host"], modes=frozenset({0o644, 0o600}))
     management = protected_file(files["management_key"],
                                 owner_uid=owners["gateway"], modes=frozenset({0o644, 0o600}))
+    verify_management_key_pair(
+        files["management_private_key"],
+        expected_public=management.decode("ascii").strip(),
+        owner_uid=owners["gateway"])
     # Fail closed before any write if the candidate is already authorized.
     if (b'permitlisten="127.0.0.1:10003"' in tunnel_auth
             or b"[127.0.0.1]:10003 " in gateway_known):
@@ -182,6 +205,7 @@ def inspect_fixed_production_environment(candidate: dict, *,
             "registry": PROD_REGISTRY,
             "gateway_host_key": PROD_GATEWAY_HOST_KEY,
             "management_key": PROD_MANAGEMENT_KEY,
+            "management_private_key": PROD_MANAGEMENT_PRIVATE_KEY,
         },
         owners={
             "tunnel": pwd.getpwnam("tunnel").pw_uid,
