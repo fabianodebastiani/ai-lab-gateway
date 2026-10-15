@@ -16,6 +16,8 @@ import base64
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 import re
 import secrets
@@ -153,6 +155,55 @@ def validate_poll_response(response: object, *, request_id: str,
         response["connection_offer"], request_id=request_id,
         device_id=device_id, persistent=persistent, tunnel_key=tunnel_key,
         host_key=host_key, trusted_gateway_host_key=trusted_gateway_host_key)
+
+
+def stage_local_candidate(offer: dict, *, state_dir: Path, request_id: str,
+                          device_id: str, persistent: bool,
+                          tunnel_key: str, host_key: str,
+                          trusted_gateway_host_key: str) -> Path:
+    """Stage public target-side SSH fragments, without installing anything.
+
+    No sudo, authorized_keys edits, sshd/systemd changes or running SSH.
+    A separately approved local administrator must later verify and install
+    the fragments using a narrow, auditable installer.
+    """
+    normalized = validate_connection_offer(
+        offer, request_id=request_id, device_id=device_id,
+        persistent=persistent, tunnel_key=tunnel_key, host_key=host_key,
+        trusted_gateway_host_key=trusted_gateway_host_key)
+    if os.geteuid() == 0:
+        raise PermissionError("candidate preparation must run without root")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{24,64}", request_id):
+        raise ValueError("invalid pairing request identifier")
+    owned_private_dir(state_dir.parent)
+    owned_private_dir(state_dir)
+    destination = state_dir / ("candidate-" + request_id)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError("candidate artifacts already exist")
+    tempdir = Path(tempfile.mkdtemp(prefix=".candidate-", dir=state_dir))
+    try:
+        def write(name: str, data: str):
+            with open(tempdir / name, "xb") as out:
+                os.fchmod(out.fileno(), 0o600)
+                out.write(data.encode("utf-8"))
+                out.flush()
+                os.fsync(out.fileno())
+        write("offer.json", json.dumps(normalized, sort_keys=True, indent=2) + "\n")
+        write("management-authorized_keys.append",
+              normalized["gateway_management_public_key"] + "\n")
+        write("gateway-known_hosts.append",
+              normalized["gateway_host"] + " " +
+              normalized["gateway_ssh_host_key"] + "\n")
+        write("STAGING_ONLY",
+              "Not installed. Target sshd, host key, service, sudoers and "
+              "authorized_keys remain unchanged.\n")
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError("candidate artifacts already exist")
+        tempdir.rename(destination)
+    finally:
+        if tempdir.exists():
+            shutil.rmtree(tempdir)
+    return destination
 
 
 def owned_private_dir(path: Path):
@@ -369,7 +420,14 @@ def run(*, url: str, device_id: str, name: str, persistent: bool,
             if prior_offer is not None and offer != prior_offer:
                 raise PermissionError("SSH offer changed after initial acceptance")
             if prior_offer is None:
-                print("Oferta SSH pública validada (sem instalar credenciais).", flush=True)
+                stage_path = stage_local_candidate(
+                    offer, state_dir=state_dir, request_id=started["request_id"],
+                    device_id=device_id, persistent=persistent,
+                    tunnel_key=tunnel, host_key=host,
+                    trusted_gateway_host_key=trusted_key)
+                print("Oferta SSH validada; arquivos candidatos em: " +
+                      str(stage_path), flush=True)
+                print("NENHUMA configuração SSH ou systemd foi instalada.", flush=True)
             prior_offer = offer
         status = result["status"]
         if status == "active":
