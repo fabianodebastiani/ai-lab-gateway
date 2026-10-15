@@ -207,3 +207,48 @@ via MCP, fazer claim HTTPS, confirmar os fingerprints no painel humano,
 provisionar credenciais exclusivas no Gateway, iniciar o candidato no
 loopback 10003, validar `exec` com identidade nova e depois revogar
 as credenciais v1 sem alterar Oracle ou Raspberry.
+
+
+### Execução do desenvolvimento em 15/10/2026, 04:42 UTC
+
+A implantação do servidor de pairing v2 já está ativa, mas o WSL
+segue **offline** do ponto de vista da Oracle: `device_status` ainda
+retorna SSH exit 255 e **nenhum** listener nas portas 10002/10003.
+Não presumir que o operador ligou o serviço apenas por ter o WSL
+aberto localmente. Ação necessária: iniciar localmente
+`sudo systemctl start ai-lab-wsl-tunnel.service` ou o atalho
+existente. Nenhuma credencial legada foi eliminada.
+
+Código novo e testes verificados no Oracle staging:
+
+- `scripts/ai-lab-device-pair-v2.py` (SHA256
+  `b3e22d0a14adb6218393e3fda731b78ac5c408a3a36bd959213a2a524da11f6e`):
+  cliente sem SSH prévio, prepara chave de túnel local nova e faz
+  claim HTTPS com token escondido (TTY ou `--token-stdin`).
+- `scripts/provision_wsl_pairing_candidate_oracle.py` (SHA256
+  `b4b62735643d5bdc7a284d950f8aa5cdf540ccc761868296372a26f702aed18b`):
+  provisionador root para o **candidato** WSL v2, reserva porta 10003,
+  exige pedido aprovado recentemente e `restricted` /
+  `persistent=false`, gera chave de gestão distinta sob proteção
+  da Oracle, anexa a chave pública do túnel com `permitlisten`,
+  fixa host key do alvo e produz backup. **Não** troca registro
+  ativo 10002; não deve ser executado até aprovação humana real.
+  Fonte foi estagiada root-owned 0600 na Oracle em
+  `/root/ai-lab-v2-tools/provision_wsl_pairing_candidate_oracle.py`,
+  hash validado. Nenhum comando `--apply` executado.
+- `tests/test_device_pair_client.py` e
+  `tests/test_provision_wsl_pairing_candidate.py`: **10 testes
+  aprovados** no staging Oracle, incluindo execução do provisionador
+  inteiramente em diretórios temporários com backups e comprovação
+  de registry original intacto. Esses testes **não** comprovam
+  o SSH final entre Oracle e WSL.
+
+**Pendências:** reconectar WSL, criar e enviar convite pela
+superfície OAuth do MCP (reconectar app se catálogo antigo), obter
+claim real, aprovação humana da identidade, provisionar candidato,
+instalar management pubkey no WSL, iniciar túnel v2 separado,
+executar testes e só então substituir registry/chaves legadas.
+Para um dispositivo virgem futuro, ainda falta um instalador
+autossuficiente de pré-requisitos (conta Linux/sshd/systemd),
+distribuição autenticada do material público e ativação totalmente
+automatizada sem SSH anterior.
