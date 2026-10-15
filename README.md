@@ -61,7 +61,40 @@ See [docs/architecture.md](docs/architecture.md),
 [ChatGPT + Auth0 OAuth runbook](docs/chatgpt-auth0-oauth-runbook.md).
 
 
-## Último checkpoint de trabalho (14/10/2026)
+## Estado confirmado em 15/10/2026 — servidor de pareamento v2 instalado
+
+**Piloto de pareamento v2 implantado com sucesso na Oracle** em
+15/10/2026 às 04:15 UTC (primeiros testes funcionais). O instalador
+reportou `PAIRING_PILOT_DEPLOYED`; os três endpoints de saúde
+(local /pairing, HTTPS /pairing, HTTPS /approvals) responderam.
+`ai-lab-pairing.service` e ambos os sockets Unix estão ativos,
+serviço roda sem root, diretório de dados 0700 e DB 0600,
+socket MCP somente `ai-lab-gateway`, socket de revisão somente
+`ai-lab-approver`. Acesso direto por `ai-maintenance` foi negado.
+Os quatro serviços anteriores continuam ativos; SSH MCP da própria
+Oracle e Raspberry online, WSL ainda offline. Chaves originais intactas.
+
+**Importante:** isto é a infraestrutura de convite/claim/revisão,
+**não** pareamento funcional completo: falta provisionamento real de
+chaves/contas/SSH e teste ponta a ponta com Linux candidato.
+Também falta elevação Restrito/Parcial/Irrestrito efetiva no alvo.
+O catálogo do app ChatGPT poderá exigir reconexão para expor as
+novas ferramentas MCP.
+
+A implantação bem-sucedida foi após duas tentativas com rollback:
+um health check imediato antes do serviço responder e uma checagem
+que esperava JSON do painel antigo, cujo `/approvals/health` retorna
+texto simples. As duas condições foram corrigidas e testadas.
+Backup final: `/var/backups/ai-lab-gateway/pairing-v2-20261015T041535Z`.
+
+**Autorização administrativa temporária separada:** o operador
+habilitou explicitamente `sudo` para a conta `ai-maintenance`
+apenas durante uma janela de 60 minutos, com revogação automática
+em **2026-10-15 05:08:04 UTC** por timer root-owned do systemd.
+Não significa aprovação permanente nem altera os perfis de novos
+dispositivos. A conta Oracle `ubuntu` permanece recuperação independente.
+
+## Histórico: checkpoint de trabalho (14/10/2026)
 
 **Primeiro ponto de retomada:** [Checkpoint de 14/10 — pareamento WSL
 v2, estado real e pendências](docs/checkpoint-2026-10-14-pairing-v2.md).
@@ -74,13 +107,13 @@ serviços v1 ativos; o WSL foi registrado **offline na última checagem**
 e pode voltar pelo túnel sob demanda. **Não apagar as credenciais
 antigas** antes da validação integral da substituição.
 
-### Atualização em 15/10/2026
+### Histórico: primeira tentativa em 15/10/2026
 
 O bundle de pareamento v2 foi **tentado** pela primeira vez na Oracle em
 15/10/2026. A instalação falhou no health check da porta 8002; o instalador
 executou rollback e os quatro serviços v1 permanecem operacionais, inclusive
-o SSH local da Oracle pelo MCP. A causa da falha está em investigação; **não
-repetir o `--apply` sem diagnóstico**. O plano ADR-027/028 permanece
+o SSH local da Oracle pelo MCP. A causa foi investigada e corrigida no instalador antes da implantação
+bem-sucedida descrita acima. O plano ADR-027/028 permanece
 inalterado. Ver [checkpoint com adendo](docs/checkpoint-2026-10-14-pairing-v2.md)
 e [diagnóstico supervisionado do broker](docs/broker-pairing-journal-rollout.md).
 
