@@ -227,6 +227,26 @@ def pairing_status(request_id: str) -> dict:
     return pairing_call("status", identity.subject, request_id=request_id)
 
 
+# ADR-029 staging only. Intentionally absent from the default MCP catalog
+# until a separately deployed, UID-locked operator socket is available.
+# This tool can resolve a device code and bind it to a verified Auth0 subject;
+# it CANNOT approve, activate, mint SSH credentials or grant sudo.
+# In particular DO NOT expose a pairing_confirm that accepts a model-written
+# "consent_verified" argument; that would bypass independent human approval.
+if os.environ.get("AI_LAB_DEVICE_CODE_MCP_ENABLED") == "1":
+    from pathlib import Path as _Path
+    from .device_code_operator import call_operator_lookup as _device_code_lookup
+
+    @mcp.tool()
+    def pairing_lookup_code(code: str) -> dict:
+        """Find a verified Linux device code; never approve or activate it."""
+        identity = _authorize_device_pairing()  # real OAuth scopes and device_enroll
+        result = _device_code_lookup(
+            path=_Path("/run/ai-lab-device-code/operator.sock"),
+            subject=identity.subject, user_code=code)
+        return result
+
+
 def _http_app():
     """Build the production ASGI app with complete OAuth metadata."""
     sdk_app = mcp.streamable_http_app(
