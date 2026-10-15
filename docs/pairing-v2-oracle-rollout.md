@@ -36,10 +36,10 @@ root supervisionado `install_pairing_pilot_oracle.py`. Os arquivos Python
 do pacote passaram em compilação sintática. O script de implantação contém
 manifests de SHA-256 **fixados**, backups, checagens de serviços, e rollback.
 
-**SHA-256 do instalador (confirmar independentemente antes de executar):**
+**SHA-256 atual do instalador (revalidado em 15/10; confirmar independentemente antes de executar):**
 
 ```text
-058061a8831292038c068f2368d6371eedb709986211397de2e8fd611aa318ce
+1be09a37a0a558f951750d265103387e61f050c1d76733aba098b6afc629f18b
 ```
 
 ## Única intervenção do administrador Oracle (conta `ubuntu`)
