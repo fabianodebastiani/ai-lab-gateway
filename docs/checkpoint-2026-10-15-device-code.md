@@ -99,3 +99,40 @@ persistence independently selected. See [ADR-029](decisions.md),
 - `tests/test_device_code.py`
 - GitHub issue #4
 - `docs/wsl-v2-migration.md`
+
+
+## Update — 2026-10-15 ~05:45 UTC: authorization question and test verification
+
+The operator explicitly asked whether root/sudo was needed to continue
+developing immediately. **Answer: not for protocol development, code review,
+Git commits and isolated target-side unit tests.** Oracle's former
+time-limited maintenance elevation has expired (verified `sudo -n id -u`
+returned `sudo: a password is required`). Do not request indefinite or
+unattended general sudo. A later production service deployment will
+require a distinct, supervised, time-limited administrator operation,
+with backups, narrow scope and tested rollback.
+
+Verified in existing WSL `windows-wsl`, accessed over still-working
+v1 SSH MCP (localhost reverse listener 10002):
+- Fetched latest `src/ai_lab_gateway/device_code.py`,
+  `src/ai_lab_gateway/enrollment.py` and `tests/test_device_code.py`
+  into isolated `/home/ai-gateway/device-code-lab`.
+- Reproduced **11/11** preexisting protocol tests passing on the WSL.
+- Found that the previously claimed final SQLite permission hardening
+  was absent from the actual GitHub source: it imported `stat`, but
+  opened SQLite with the default SQLite creation permissions. Fixed
+  owner-only database (0600), owner-only parent (0700, including SQLite
+  journal/sidecar protection), regular-file check and symlink rejection.
+- Added two tests for secure fresh DB+directory, insecure existing
+  database, symlinked DB and insecure parent. Final WSL execution
+  **13/13 tests passed** with no sudo and no production changes.
+- Implementation commit `a33f26748271c4d9c024052267d4e68719af808f`;
+  test commit `375a7f9b88ea34b187b42e42c6c85b1d3ddbe798`.
+- The real WSL and Oracle gateway were online and production services
+  remained active; the v2 10003 candidate still unactivated.
+
+**Caution:** This is isolated verification, not production deployment.
+The next implementation tasks are the versioned portable Linux CLI,
+isolated device HTTPS start/prove/poll API and Auth0-restricted MCP
+lookup/consent integration. Do not bypass the human-approval trust
+boundary merely through a model-supplied `consent_verified=true`.
