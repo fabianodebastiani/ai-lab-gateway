@@ -13,17 +13,16 @@ audit, port reservation, backup and SSH negative acceptance are mandatory.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
 from pathlib import Path
 import stat
-import tempfile
 
 from .device_code_candidate import PILOT_DEVICE, PILOT_PORT
 from .device_code_offer import validate_offer
 from .enrollment import _validate_public_key
+from .device_code_candidate_journal import apply_mock_gateway_transaction
 
 
 def _private_dir(folder: Path) -> None:
@@ -43,26 +42,6 @@ def _protected_file(path: Path) -> bytes:
     if len(data) > 128 * 1024:
         raise ValueError("mock SSH file is oversized")
     return data
-
-
-def _atomic_replace(path: Path, contents: bytes) -> None:
-    """Preserve the lab's 0600 owned-file invariant, not a prod root installer."""
-    handle, temporary = tempfile.mkstemp(prefix=".ssh-transaction-", dir=path.parent)
-    try:
-        with os.fdopen(handle, "wb") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            stream.write(contents)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        fd = os.open(str(path.parent), os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
 
 
 def rehearse_mock_gateway_install(store, request_id: str, *,
@@ -119,48 +98,13 @@ def rehearse_mock_gateway_install(store, request_id: str, *,
     if offer["reverse_listen_port"] != PILOT_PORT:
         raise PermissionError("wrong port")
 
-    auth_path = mock / "authorized_keys"
-    known_path = mock / "known_hosts"
-    # The directory is 0700, while the kernel lock prevents interleaved
-    # apply operations from this local rehearsal.
-    lock_path = mock / "transaction.lock"
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    try:
-        info = os.fstat(fd)
-        if (info.st_uid != os.geteuid() or not stat.S_ISREG(info.st_mode)
-                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
-            raise PermissionError("unsafe transaction lock")
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        old_auth = _protected_file(auth_path)
-        old_known = _protected_file(known_path)
-        if (expected_tunnel.strip() in old_auth
-                or expected_host.strip() in old_known
-                or b'permitlisten="127.0.0.1:10003"' in old_auth
-                or b"[127.0.0.1]:10003 " in old_known):
-            raise FileExistsError("candidate already assigned or port occupied")
-        new_auth = old_auth.rstrip(b"\n") + b"\n" + expected_tunnel
-        new_known = old_known.rstrip(b"\n") + b"\n" + expected_host
-        first_applied = False
-        try:
-            _atomic_replace(auth_path, new_auth)
-            first_applied = True
-            if inject_failure_after_first:
-                raise RuntimeError("injected second-stage failure")
-            _atomic_replace(known_path, new_known)
-        except BaseException:
-            if first_applied:
-                # Best-effort live rollback is NOT crash-safe; production
-                # requires a durable journal and root-owned backup.
-                _atomic_replace(auth_path, old_auth)
-            raise
-        return {
-            "status": "mock_gateway_fragments_applied",
-            "port": PILOT_PORT,
-            "live_ssh_changed": False,
-            "registry_changed": False,
-        }
-    finally:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
+    committed = apply_mock_gateway_transaction(
+        sandbox_root, auth_fragment=expected_tunnel,
+        host_fragment=expected_host,
+        test_failure_after_first=inject_failure_after_first)
+    return {
+        "status": "mock_gateway_fragments_applied",
+        "port": committed["port"],
+        "live_ssh_changed": committed["live_ssh_changed"],
+        "registry_changed": committed["registry_changed"],
+    }
