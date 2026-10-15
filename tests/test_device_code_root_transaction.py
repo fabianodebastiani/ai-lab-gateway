@@ -196,5 +196,75 @@ class RealRootCandidateTransactionTests(unittest.TestCase):
         self.unchanged()
 
 
+    def test_root_apply_adapter_rechecks_handoff_inside_journal_lock(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from ai_lab_gateway import device_code_root_apply as adapter
+
+        candidate = {
+            "request_id": self.rid,
+            "tunnel_public_key": self.keys["tunnel_key"],
+            "host_public_key": self.keys["target_host"],
+            "device_id": "windows-wsl", "access_mode": "restricted",
+            "persistent": False,
+        }
+        report = {
+            "status": "candidate_preflight_ok", "device_id": "windows-wsl",
+            "port": 10003, "access_mode": "restricted", "persistent": False,
+            "registry_changed": False, "ssh_changed": False,
+        }
+        identities = {
+            "tunnel": SimpleNamespace(pw_uid=self.tunnel_uid,
+                                      pw_gid=self.tunnel_uid),
+            "ai-lab-gateway": SimpleNamespace(pw_uid=self.gateway_uid,
+                                               pw_gid=self.gateway_uid),
+        }
+        handoff_reads = []
+        def trusted_approval(rid):
+            self.assertEqual(rid, self.rid)
+            handoff_reads.append(rid)
+            return dict(candidate)
+        with patch.object(adapter, "production_paths", return_value=self.paths), \
+             patch.object(adapter, "_trusted_approved_candidate", side_effect=trusted_approval), \
+             patch.object(adapter, "_verify_root_environment", return_value=report), \
+             patch.object(adapter.pwd, "getpwnam", side_effect=lambda name: identities[name]):
+            applied = adapter.apply_staged_wsl_candidate(self.rid)
+        self.assertEqual(applied["status"], "candidate_ssh_staged")
+        self.assertEqual(handoff_reads, [self.rid, self.rid])
+        self.assertIn(b"10003", self.auth.read_bytes())
+        self.assertEqual(self.registry.read_bytes(), self.registry_backup)
+
+    def test_root_apply_adapter_detects_revoked_approval_at_commit(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from ai_lab_gateway import device_code_root_apply as adapter
+
+        original = {"request_id": self.rid,
+                    "tunnel_public_key": self.keys["tunnel_key"],
+                    "host_public_key": self.keys["target_host"],
+                    "device_id": "windows-wsl"}
+        tampered = {**original, "host_public_key": self.keys["other"]}
+        verified = {
+            "status": "candidate_preflight_ok", "device_id": "windows-wsl",
+            "port": 10003, "access_mode": "restricted", "persistent": False,
+            "registry_changed": False, "ssh_changed": False,
+        }
+        identities = {
+            "tunnel": SimpleNamespace(pw_uid=self.tunnel_uid,
+                                      pw_gid=self.tunnel_uid),
+            "ai-lab-gateway": SimpleNamespace(pw_uid=self.gateway_uid,
+                                               pw_gid=self.gateway_uid),
+        }
+        with patch.object(adapter, "production_paths", return_value=self.paths), \
+             patch.object(adapter, "_trusted_approved_candidate",
+                          side_effect=[original, tampered]), \
+             patch.object(adapter, "_verify_root_environment", return_value=verified), \
+             patch.object(adapter.pwd, "getpwnam", side_effect=lambda name: identities[name]):
+            with self.assertRaises(PermissionError):
+                adapter.apply_staged_wsl_candidate(self.rid)
+        self.unchanged()
+        self.assertFalse((self.journal / JOURNAL).exists())
+
+
 if __name__ == "__main__":
     unittest.main()
