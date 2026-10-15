@@ -127,7 +127,7 @@ POST /pairing/device/start          anonymous, rate limited; returns
                                     request_id + user_code + device_secret
                                     + server nonce (no authorization)
 POST /pairing/device/prove          device_secret + signed challenge proof
-GET  /pairing/device/poll           device_secret; throttled, no account info
+POST /pairing/device/poll           device_secret in JSON body; throttled, no account info
 MCP  pairing_lookup_code(code)      OAuth gateway:control + device_enroll
 MCP  pairing_confirm(request_id,
                      confirmation)  consent-attested explicit authorization
@@ -136,7 +136,7 @@ LOCAL provision_candidate(request)  protected root-only provisioning after appro
 LOCAL verify_activate(request)      exact SSH verification + atomic registry update
 ```
 
-Separately version protocol structures. The existing live
+Polling uses POST (rather than query-string GET) to avoid placing the\nlong device secret in URLs, intermediary access logs and browser history.\n\nSeparately version protocol structures. The existing live
 `/pairing/claim`, `pairing_invite` and approval web must remain
 unmodified until the new API is deployed and verified. No compatibility
 or live endpoint is promised by this document.
