@@ -66,6 +66,8 @@ class RootPreflightRPCTests(unittest.TestCase):
     def test_legitimate_kernel_uid_can_only_request_readonly_preflight(self):
         self.serve()
         self.assertEqual(stat.S_IMODE(self.socket.stat().st_mode), 0o600)
+        self.assertEqual(self.socket.stat().st_uid, os.geteuid())
+        self.assertEqual(self.socket.stat().st_gid, os.getegid())
         self.assertEqual(call_root_preflight(self.socket, request_id=self.request), {
             "ok": True, "status": "preflight_only", "port": 10003,
             "access_mode": "restricted",
