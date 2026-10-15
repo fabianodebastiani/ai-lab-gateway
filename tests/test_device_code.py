@@ -107,7 +107,7 @@ class DeviceCodeTests(unittest.TestCase):
         self.assertEqual(lookup["request_id"],p["request_id"])
         self.assertNotIn("confirmation",lookup)  # MCP cannot learn the PIN
         self.assertEqual(lookup["access_mode"],"restricted")
-         with self.assertRaises(PermissionError):
+        with self.assertRaises(PermissionError):
             self.store.confirm(request_id=p["request_id"],
                    operator_subject="auth0|mallory",
                    confirmation=p["confirmation"],now=107)
