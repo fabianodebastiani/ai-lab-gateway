@@ -428,3 +428,101 @@ a trusted local sudo setup (not permanent general MCP sudo), configure
 the `connection_unit` in the protected device registry and authorize
 `connection_manage` per subject/device. A successful unit test is
 not evidence of deployed operation.
+
+
+## ADR-029 — Pairing by device-displayed code through authenticated MCP
+
+**Date:** 2026-10-15. **Status:** accepted product decision; implementation pending.
+
+**Decision:** The default onboarding experience for a previously unknown Linux
+device is **device-initiated, code-based enrollment**, with **explicit,
+authenticated confirmation in the existing ChatGPT/MCP conversation**.
+Do not require a second login, a memorized admin-panel password, access to
+the device from the ChatGPT computer, or preexisting SSH connectivity.
+Keep the old browser approver as optional admin/recovery fallback only;
+do not remove the legacy approval path until the new path has passed live
+security/functional acceptance.
+
+**User experience:** A user on any computer or phone asks ChatGPT how to add
+a Linux device. ChatGPT provides a **stable, public, nonsensitive download
+command** for a small, integrity-verified installer. The Linux target may
+also initiate the process independently. The installer, in the target's
+terminal, connects to the gateway over outbound HTTPS, generates a new
+local Ed25519 tunnel identity and required management/host identity proof,
+requests a pairing session, and displays a short **human-typeable** code
+(e.g. `K7M2-P9Q4`, illustrative only). The user types that code into
+ChatGPT, which resolves it via Auth0-authenticated MCP authorization.
+ChatGPT shows an identified, **pending** device and confirmation data that
+the user can compare on the Linux terminal; the user explicitly confirms
+this exact pending device. The gateway provisions isolated management/
+tunnel credentials and a loopback-only reverse SSH listener, runs
+connectivity and denial-of-privilege tests, and then marks the device active.
+The code expires/gets consumed; the connection starts **Restricted**
+independently of the requested `persistent` boolean.
+
+**Never equate:** user Auth0 authentication, possession of a pairing code,
+possession of a Linux SSH key, and authorization to grant root. These are
+separate trust assertions; successful enrollment **does not imply sudo**.
+
+**Protocol and threat model:**
+1. Use the **OAuth 2.0 Device Authorization Grant (RFC 8628) model** as
+   inspiration, not as a claim that our custom MCP pairing is an OAuth
+   authorization-server implementation. Public HTTPS creates a pending
+   device-bound session; the device receives both a high-entropy,
+   nonhuman `device_secret` for authenticated polling and a short
+   `user_code` for presentation to the operator. The server creates and
+   stores only digests of these secrets and never logs them.
+2. The human code alone is **never a credential for remote access** or
+   approval. It only looks up a pending session when paired with an
+   Auth0-verified, authorized MCP principal. Rate limit and audit *all*
+   public session creation, code lookups, confirmation attempts and polls;
+   enforce short TTL, finite total attempts, one-use resolution, strong
+   random code entropy, and explicit code-disclosure/abuse safeguards.
+   No plain single word such as `girafa` is adequate. A random
+   multiword phrase is an optional UX, with measured entropy.
+3. Bind the enrollment to target-generated Ed25519 public identities.
+   Challenge-response with the private key proves key possession.
+   The server supplies verifiable gateway identity material, the terminal
+   displays a comparison phrase/fingerprint, and the authenticated user
+   checks the same value in ChatGPT before confirming. This mitigates
+   code guessing, session confusion, substitution, interception and replay.
+   Before activation the server must recheck the bound principal,
+   exact pending device identity, expiry, challenge/nonce and key proofs;
+   multiple claimed codes/users cannot silently replace the device.
+4. **The model's text alone is not an approval token.** The MCP write
+   operation must be authorized with `gateway:control`, explicit
+   `device_enroll` policy, attributable to the actual Auth0 principal,
+   user-initiated and approved via a host-mediated confirmation UI or
+   independently verifiable signed confirmation/step-up. If the current
+   ChatGPT/host cannot supply that assurance, keep the independent human
+   approval boundary as fallback: do not bypass it by treating
+   a model-generated tool call as human consent.
+5. The installer comes from a versioned, TLS-served artifact with
+   verified SHA-256/signature and controlled release; no unverified
+   `curl | sudo bash`, no permanent broad sudo, no credential in command
+   line/history. Installer privileges must be narrow and local; SSH
+   private keys are created and kept on their originating machine.
+6. Persistent vs on-demand is independent and applies to every device,
+   per ADR-028. The v2 candidate coexists with any v1 connection until
+   successful SSH/authorization/reconnect/rollback tests; revocation
+   of v1 happens only after verified cutover.
+
+**API separation:** public unauthenticated *initiation/polling*
+(which cannot authorize); authenticated MCP *lookup/request/confirm*;
+privileged, narrow, auditable *provisioning* after effective human
+authorization. Prefer distinct Unix identities/sockets and explicit
+root-owned allowlisted provisioning operations. Never allow a public
+device request to authorize itself or choose arbitrary SSH listen ports.
+
+**Deployment approach:** Keep existing production pairing v2 invite/claim
+and browser approval service operational while developing this
+device-code flow as an opt-in candidate. Test under synthetic sessions
+first and against the existing WSL without a second Ubuntu distribution,
+then test from a truly virgin Linux target before considering onboarding
+complete. Do not grant generic overnight root access merely for
+development. Existing Oracle `ai-maintenance` elevated privileges
+expired on 2026-10-15 at 05:08 UTC and are not automatically renewable.
+
+**References:** [device-code protocol and acceptance criteria](device-code-pairing-v2.md),
+[v2 onboarding/access contract](v2-device-onboarding-access.md),
+[WSL migration checkpoint](wsl-v2-migration.md), ADR-027 and ADR-028.
