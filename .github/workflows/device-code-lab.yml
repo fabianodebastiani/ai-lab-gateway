@@ -7,6 +7,7 @@ on:
       - "src/ai_lab_gateway/device_code*.py"
       - "src/ai_lab_gateway/sshsig.py"
       - "scripts/device_code_pair_linux.py"
+      - "scripts/run_device_code_root_preflight.py"
       - "scripts/run_device_code_lab.py"
       - "scripts/install_ai_lab_device.sh"
       - "tests/test_device_code*.py"
