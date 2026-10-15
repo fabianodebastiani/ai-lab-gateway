@@ -6,6 +6,9 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import threading
+import urllib.error
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 CLI_PATH = Path(__file__).resolve().parents[1] / "scripts" / "device_code_pair_linux.py"
@@ -128,6 +131,42 @@ class LinuxSSHOfferTests(unittest.TestCase):
             client.load_trusted_gateway_host_key(alias)
         with self.assertRaises(PermissionError):
             client.load_trusted_gateway_host_key(None)
+
+
+    def test_http_redirect_never_reaches_target(self):
+        visited = []
+        redirect_status = [302]
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                visited.append(("POST", self.path))
+                self.send_response(redirect_status[0])
+                self.send_header("Location", "/stolen")
+                self.end_headers()
+
+            def do_GET(self):
+                visited.append(("GET", self.path))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                return
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                base = "http://127.0.0.1:" + str(server.server_port)
+                for code in (301, 302, 303, 307, 308):
+                    redirect_status[0] = code
+                    with self.subTest(code=code), self.assertRaises(
+                            (PermissionError, urllib.error.HTTPError)):
+                        client.post(base, "/pairing/device/poll",
+                                    {"device_secret": "do-not-forward"})
+                self.assertEqual(visited, [("POST", "/pairing/device/poll")] * 5)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
 
 
 if __name__ == "__main__":
