@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Oracle pairing-v2 pilot: SHA-pinned, backup-first, fail-closed root deployment.
 
-This installer is NOT run by MCP. An Oracle console administrator copies the
-staged bundle into a private root-owned directory, independently verifies
-THIS script's SHA256 against the value supplied through the trusted operator
-channel, runs --check, and only then explicitly runs --apply.
+Root deployment requires explicit human authorization. The installer can run
+from the Oracle recovery console or during a user-approved, time-limited
+administrative maintenance window. Source bundle hash pinning, preflight,
+backup and rollback are mandatory.
 
 No generic sudo grant is created. Existing SSH keys, tunnels and device
 registry entries are preserved. Any failed health check triggers rollback.
@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 
 STAGE = Path("/root/ai-lab-v2-rollout")
@@ -65,6 +66,33 @@ SERVICES = ("ai-lab-gateway", "ai-lab-approval-web", "ai-lab-privilege-broker", 
 
 def run(*argv, check=True):
     return subprocess.run(argv, check=check, capture_output=True, text=True, timeout=45)
+
+
+def wait_for_health(url: str, *, timeout_seconds: int = 30) -> dict:
+    """Allow systemd and the tiny Oracle VM to finish service startup.
+
+    A single curl immediately after reload is racy, especially on the first
+    SQLite initialization. Enforce a finite deadline and retain the original
+    root-owned rollback path on failure.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    last_error = "unavailable"
+    while True:
+        try:
+            response = run("/usr/bin/curl", "-fsS", "--max-time", "3", url)
+            value = json.loads(response.stdout)
+            if isinstance(value, dict) and value.get("status") == "ok":
+                return value
+            last_error = "unexpected health response"
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                ValueError, OSError) as exc:
+            last_error = type(exc).__name__
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                "health check did not become ready: " + url
+                + " (" + last_error + ")"
+            )
+        time.sleep(0.5)
 
 
 def verify_stage():
@@ -254,14 +282,13 @@ def main():
         run("/usr/bin/systemctl", "restart", "ai-lab-approval-web")
         run("/usr/bin/systemctl", "restart", "ai-lab-gateway")
         run("/usr/bin/systemctl", "reload", "caddy")
-        health = run("/usr/bin/curl", "-fsS", "--max-time", "5",
-                     "http://127.0.0.1:8002/pairing/health")
-        if json.loads(health.stdout).get("status") != "ok":
-            raise RuntimeError("pairing HTTP service is unhealthy")
-        run("/usr/bin/curl", "-fsS", "--max-time", "8",
-            "https://gateway.debasti.com/pairing/health")
-        run("/usr/bin/curl", "-fsS", "--max-time", "8",
-            "https://gateway.debasti.com/approvals/health")
+        for url in (
+            "http://127.0.0.1:8002/pairing/health",
+            "https://gateway.debasti.com/pairing/health",
+            "https://gateway.debasti.com/approvals/health",
+        ):
+            wait_for_health(url)
+            print("HEALTH_OK=" + url, flush=True)
         services = run("/usr/bin/systemctl", "is-active",
                        *SERVICES, "ai-lab-pairing.service")
         if any(x != "active" for x in services.stdout.splitlines()):
