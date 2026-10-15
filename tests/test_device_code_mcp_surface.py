@@ -19,12 +19,14 @@ class DeviceCodeMCPBoundaryTests(unittest.TestCase):
         self.assertEqual(len(feature_guard),1)
         tools=[node for node in feature_guard[0].body
                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))]
-        self.assertEqual([node.name for node in tools],["pairing_lookup_code"])
-        code=ast.unparse(tools[0])
-        self.assertIn("_authorize_device_pairing()",code)
-        self.assertIn("identity.subject",code)
-        self.assertNotIn("consent_verified",code)
-        self.assertNotIn("activate(",code)
+        self.assertEqual([node.name for node in tools],
+                         ["pairing_lookup_code","pairing_confirm_code"])
+        for tool in tools:
+            code=ast.unparse(tool)
+            self.assertIn("_authorize_device_pairing()",code)
+            self.assertIn("identity.subject",code)
+            self.assertNotIn("consent_verified",code)
+            self.assertNotIn("activate(",code)
 
     def test_no_mcp_self_approval_endpoint(self):
         tree=ast.parse(SERVER.read_text())
@@ -37,6 +39,7 @@ class DeviceCodeMCPBoundaryTests(unittest.TestCase):
         allowed={node.value for node in ast.walk(public)
                  if isinstance(node,ast.Constant) and isinstance(node.value,str)}
         self.assertIn("lookup",allowed)
+        self.assertIn("confirm",allowed)
         self.assertNotIn("consent_verified",allowed)
 
 
