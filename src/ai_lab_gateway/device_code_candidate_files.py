@@ -82,10 +82,11 @@ def rehearse_mock_gateway_install(store, request_id: str, *,
     _private_dir(sandbox_root)
     mock = sandbox_root / "mock-gateway"
     _private_dir(mock)
+    # Reject unapproved or expired sessions *before* looking at candidate
+    # filesystem paths, so rejected requests never reveal staging layout.
+    approved = store.staged_candidate_snapshot(request_id=request_id)
     candidate = sandbox_root / ("candidate-" + request_id)
     _private_dir(candidate)
-
-    approved = store.staged_candidate_snapshot(request_id=request_id)
     if approved["device_id"] != PILOT_DEVICE or approved["persistent"] is not False:
         raise PermissionError("WSL Restricted/on-demand pilot only")
     disk_offer = json.loads(_protected_file(candidate / "offer.json"))
