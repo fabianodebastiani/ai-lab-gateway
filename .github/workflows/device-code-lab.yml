@@ -57,3 +57,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src
         run: sudo -n env PYTHONPATH="$PYTHONPATH" "$(command -v python)" -m unittest discover -s tests -p 'test_device_code_root_transaction.py' -v
+      - name: Test root-owned independent SSH identity in disposable CI directories
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: sudo -n env PYTHONPATH="$PYTHONPATH" "$(command -v python)" -m unittest discover -s tests -p 'test_device_code_root_identity.py' -v
