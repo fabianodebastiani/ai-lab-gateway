@@ -233,28 +233,33 @@ class DeviceCodeStore:
         }
 
     def prove(self, *, request_id: str, device_secret: str,
-              signature_b64: str, now: int | None = None) -> dict:
+              signature_b64: str | None = None, sshsig: str | None = None,
+              now: int | None = None) -> dict:
         """Only a valid Ed25519 signature over our challenge advances pending."""
         moment = int(time.time()) if now is None else now
         row = self._get_device_row(request_id, device_secret)
         if row["state"] != "pending" or moment >= row["expires_at"]:
             raise PermissionError("not pending or expired")
-        try:
-            signature = base64.b64decode(signature_b64, validate=True)
-        except (ValueError, TypeError) as exc:
-            raise PermissionError("invalid possession signature") from exc
-        if len(signature) != 64:
-            raise PermissionError("invalid possession signature")
+        if (signature_b64 is None) == (sshsig is None):
+            raise PermissionError("exactly one Ed25519 signature format required")
         challenge = _challenge(
             request_id=row["request_id"], device_id=row["device_id"],
             nonce=row["nonce"], tunnel_public_key=row["tunnel_public_key"],
             host_public_key=row["host_public_key"],
             persistent=bool(row["persistent"]), expires_at=row["expires_at"])
-        try:
-            Ed25519PublicKey.from_public_bytes(
-                _ssh_ed25519_raw(row["tunnel_public_key"])).verify(signature, challenge)
-        except (InvalidSignature, ValueError) as exc:
-            raise PermissionError("device key-possession proof failed") from exc
+        if sshsig is not None:
+            from .sshsig import verify_sshsig
+            verify_sshsig(armor=sshsig, challenge=challenge,
+                          expected_public_key=row["tunnel_public_key"])
+        else:
+            try:
+                signature = base64.b64decode(signature_b64, validate=True)
+                if len(signature) != 64:
+                    raise ValueError("invalid Ed25519 signature length")
+                Ed25519PublicKey.from_public_bytes(
+                    _ssh_ed25519_raw(row["tunnel_public_key"])).verify(signature, challenge)
+            except (InvalidSignature, ValueError, TypeError) as exc:
+                raise PermissionError("device key-possession proof failed") from exc
         with closing(self._db()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             changed = db.execute(
