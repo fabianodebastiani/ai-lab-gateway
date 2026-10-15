@@ -21,13 +21,14 @@ import subprocess
 
 from .device_code_root_preflight import preflight_wsl_candidate
 from .enrollment import _validate_public_key
+from .device_code_root_identity import BASE as ROOT_KEY_BASE, PILOT as ROOT_KEY_PILOT, verify_wsl_management_identity
 
 PROD_AUTHORIZED_KEYS = Path("/var/lib/ai-lab-tunnel/.ssh/authorized_keys")
 PROD_KNOWN_HOSTS = Path("/var/lib/ai-lab-gateway/.ssh/known_hosts")
 PROD_REGISTRY = Path("/etc/ai-lab-gateway/devices.json")
 PROD_GATEWAY_HOST_KEY = Path("/etc/ssh/ssh_host_ed25519_key.pub")
-PROD_MANAGEMENT_KEY = Path("/var/lib/ai-lab-gateway/keys/windows-wsl-v2-candidate.pub")
-PROD_MANAGEMENT_PRIVATE_KEY = Path("/var/lib/ai-lab-gateway/keys/windows-wsl-v2-candidate")
+PROD_MANAGEMENT_KEY = ROOT_KEY_BASE / ROOT_KEY_PILOT / "identity.pub"
+PROD_MANAGEMENT_PRIVATE_KEY = ROOT_KEY_BASE / ROOT_KEY_PILOT / "identity"
 PORT = 10003
 MAX_FILE = 256 * 1024
 
@@ -142,15 +143,21 @@ def loopback_port_available(*, bind_port: int = PORT) -> bool:
 
 def inspect_candidate_environment(candidate: dict, *, files: dict,
                                   owners: dict, effective_sshd: str,
-                                  port_is_free: bool) -> dict:
+                                  port_is_free: bool,
+                                  root_verified_management_public_key: str | None = None) -> dict:
     """Read-only testable core; trusted file paths/UIDs from root-side config.
 
     No caller-controlled path is permitted through the IPC. The eventual
     root entrypoint uses only fixed PROD_* paths and passwd-resolved owners.
     """
-    if not isinstance(files, dict) or set(files) != {
-            "authorized_keys", "known_hosts", "registry",
-            "gateway_host_key", "management_key", "management_private_key"}:
+    # The production wrapper supplies the management pin ONLY after
+    # root-controlled verification of the actual root:gateway keypair.
+    # Older no-root unit tests still exercise the legacy injected pair.
+    expected_paths = {
+        "authorized_keys", "known_hosts", "registry", "gateway_host_key"}
+    if root_verified_management_public_key is None:
+        expected_paths |= {"management_key", "management_private_key"}
+    if not isinstance(files, dict) or set(files) != expected_paths:
         raise PermissionError("invalid trusted path configuration")
     if not isinstance(owners, dict) or set(owners) != {
             "tunnel", "gateway", "registry", "host"}:
@@ -166,12 +173,18 @@ def inspect_candidate_environment(candidate: dict, *, files: dict,
                                   owner_uid=owners["registry"], modes=frozenset({0o600, 0o640}))
     gateway_host = protected_file(files["gateway_host_key"],
                                   owner_uid=owners["host"], modes=frozenset({0o644, 0o600}))
-    management = protected_file(files["management_key"],
-                                owner_uid=owners["gateway"], modes=frozenset({0o644, 0o600}))
-    verify_management_key_pair(
-        files["management_private_key"],
-        expected_public=management.decode("ascii").strip(),
-        owner_uid=owners["gateway"])
+    if root_verified_management_public_key is None:
+        management = protected_file(
+            files["management_key"],
+            owner_uid=owners["gateway"], modes=frozenset({0o644, 0o600}))
+        verify_management_key_pair(
+            files["management_private_key"],
+            expected_public=management.decode("ascii").strip(),
+            owner_uid=owners["gateway"])
+        management_public = _validate_public_key(management.decode("ascii").strip())
+    else:
+        # This value may NEVER originate from a client or MCP payload.
+        management_public = _validate_public_key(root_verified_management_public_key)
     # Fail closed before any write if the candidate is already authorized.
     if (b'permitlisten="127.0.0.1:10003"' in tunnel_auth
             or b"[127.0.0.1]:10003 " in gateway_known):
@@ -179,7 +192,6 @@ def inspect_candidate_environment(candidate: dict, *, files: dict,
     check_tunnel_sshd_policy(effective_sshd)
     gateway_public = _validate_public_key(gateway_host.decode("ascii").strip())
     target_public = known_hosts_key(gateway_known, endpoint="[127.0.0.1]:10002")
-    management_public = _validate_public_key(management.decode("ascii").strip())
     try:
         registry = json.loads(registry_raw)
     except (UnicodeError, ValueError) as exc:
@@ -211,6 +223,9 @@ def inspect_fixed_production_environment(candidate: dict, *,
         free_or_reserved = True
     else:
         free_or_reserved = loopback_port_available()
+    gateway = pwd.getpwnam("ai-lab-gateway")
+    verified_management_key = verify_wsl_management_identity(
+        group_gid=gateway.pw_gid, gateway_uid=gateway.pw_uid)
     return inspect_candidate_environment(
         candidate,
         files={
@@ -218,8 +233,6 @@ def inspect_fixed_production_environment(candidate: dict, *,
             "known_hosts": PROD_KNOWN_HOSTS,
             "registry": PROD_REGISTRY,
             "gateway_host_key": PROD_GATEWAY_HOST_KEY,
-            "management_key": PROD_MANAGEMENT_KEY,
-            "management_private_key": PROD_MANAGEMENT_PRIVATE_KEY,
         },
         owners={
             "tunnel": pwd.getpwnam("tunnel").pw_uid,
@@ -228,4 +241,5 @@ def inspect_fixed_production_environment(candidate: dict, *,
         },
         effective_sshd=effective_sshd,
         port_is_free=free_or_reserved,
+        root_verified_management_public_key=verified_management_key,
     )
