@@ -152,6 +152,11 @@ class DeviceCodeStore:
               last_poll INTEGER,
               provision_state TEXT NOT NULL DEFAULT 'not_provisioned'
             )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS connection_offers(
+              request_id TEXT PRIMARY KEY,
+              public_offer_json TEXT NOT NULL,
+              staged_at INTEGER NOT NULL
+            )""")
             db.execute("""CREATE TABLE IF NOT EXISTS code_lookups(
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               principal_digest TEXT NOT NULL,
@@ -310,9 +315,17 @@ class DeviceCodeStore:
                        (moment,request_id))
             status = row["state"] if moment < row["expires_at"] else (
                 "active" if row["state"]=="active" else "expired")
+            offer_row = None
+            if status in ("approved", "active"):
+                offer_row = db.execute(
+                    "SELECT public_offer_json FROM connection_offers WHERE request_id=?",
+                    (request_id,)).fetchone()
             db.commit()
-        return {"status":status,"request_id":request_id,
-                "access_mode":"restricted"}
+        response = {"status":status,"request_id":request_id,
+                    "access_mode":"restricted"}
+        if offer_row is not None:
+            response["connection_offer"] = json.loads(offer_row["public_offer_json"])
+        return response
 
     def lookup(self, *, user_code: str, operator_subject: str,
                now: int | None = None) -> dict:
@@ -434,6 +447,50 @@ class DeviceCodeStore:
                 raise PermissionError("pending request not owned by principal")
             db.commit()
         return {"request_id":request_id,"status":"denied"}
+
+    def stage_connection_offer(
+            self, *, request_id: str, offer: dict,
+            provisioner_verified: bool = False, now: int | None = None) -> dict:
+        """Stage an immutable PUBLIC connection offer after trusted provisioning.
+
+        This method is only a storage primitive. In production its caller
+        MUST be a root-owned allowlisted provisioner over a root-only IPC.
+        A model-provided Boolean or request text is NEVER authoritative.
+        Neither HTTP nor Auth0 operator IPC exposes this method.
+        """
+        if provisioner_verified is not True:
+            raise PermissionError("separate trusted SSH provisioning required")
+        from .device_code_offer import validate_offer
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT device_id,persistent,tunnel_public_key,host_public_key,"
+                "state,expires_at FROM sessions WHERE request_id=?",
+                (request_id,)).fetchone()
+            if row is None or row["state"] != "approved" or row["expires_at"] <= moment:
+                db.rollback()
+                raise PermissionError("connection offer requires unexpired approval")
+            validated = validate_offer(
+                offer, request_id=request_id, device_id=row["device_id"],
+                persistent=bool(row["persistent"]),
+                tunnel_key=row["tunnel_public_key"],
+                host_key=row["host_public_key"])
+            if db.execute("SELECT 1 FROM connection_offers WHERE request_id=?",
+                          (request_id,)).fetchone():
+                db.rollback()
+                raise PermissionError("connection offer already staged")
+            db.execute(
+                "INSERT INTO connection_offers(request_id,public_offer_json,staged_at)"
+                " VALUES (?,?,?)",
+                (request_id,json.dumps(validated,sort_keys=True,separators=(",",":")),
+                 moment))
+            db.execute("UPDATE sessions SET provision_state='candidate_staged' "
+                       "WHERE request_id=? AND state='approved'",(request_id,))
+            db.commit()
+        return {"request_id":request_id,"status":"candidate_staged",
+                "access_mode":"restricted"}
+
 
     def activate(self, *, request_id: str, provisioner_verified: bool = False,
                  now: int | None = None) -> dict:
