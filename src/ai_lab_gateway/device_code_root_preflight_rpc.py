@@ -126,7 +126,15 @@ def _create_socket(path: Path, protocol: RootPreflightProtocol, *,
         raise PermissionError("invalid trusted invoking UID")
     server = _SocketServer(
         str(path), _handler(protocol, allowed_uid=allowed_uid))
-    os.chmod(path, socket_mode)
+    try:
+        # The socket does NOT necessarily inherit the parent's group.
+        # Explicit root:ai-lab-gateway ownership is required for mode 0660.
+        os.chown(path, owner_uid, owner_gid)
+        os.chmod(path, socket_mode)
+    except BaseException:
+        server.server_close()
+        Path(path).unlink(missing_ok=True)
+        raise
     return server
 
 
