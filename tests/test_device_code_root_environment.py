@@ -78,6 +78,8 @@ class FixedRootEnvironmentTests(unittest.TestCase):
             target.write_text(value, encoding="ascii")
             target.chmod(0o600)
             self.files[name] = target
+        # Distinct private/public management identity, never sent to offer.
+        self.files["management_private_key"] = self.root / "management"
         self.owners = dict.fromkeys(("tunnel", "gateway", "registry", "host"), os.getuid())
 
     def inspect(self, *, candidate=None, sshd=SSHD, free=True,
@@ -128,6 +130,19 @@ class FixedRootEnvironmentTests(unittest.TestCase):
         self.files["management_key"].write_text(self.keys["different"] + "\n")
         with self.assertRaises(PermissionError):
             self.inspect()
+
+    def test_private_management_identity_must_match_offered_public_key(self):
+        private_path = self.files["management_private_key"]
+        other_private = self.root / "different"
+        wrong = {**self.files, "management_private_key": other_private}
+        with self.assertRaises(PermissionError):
+            self.inspect(files=wrong)
+        original_mode = stat.S_IMODE(private_path.stat().st_mode)
+        private_path.chmod(0o644)
+        with self.assertRaises(PermissionError):
+            self.inspect()
+        private_path.chmod(original_mode)
+        self.assertEqual(self.inspect()["status"], "candidate_preflight_ok")
 
     def test_rejects_target_host_key_substitution_and_duplicate_pins(self):
         file = self.files["known_hosts"]
