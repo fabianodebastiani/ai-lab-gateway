@@ -1,5 +1,14 @@
 # Pairing v2 — implantação supervisionada na Oracle (piloto WSL)
 
+> **STATUS ATUAL — 15/10/2026 04:16 UTC: INSTALADO (PILOTO).**
+> O instalador corrigido concluiu `PAIRING_PILOT_DEPLOYED` na Oracle.
+> Serviços e sockets v2 ativos, endpoints `/pairing/health` e
+> `/approvals/health` OK, v1 preservado, nenhum dispositivo migrado.
+> **Não execute novamente este procedimento numa instalação já ativa**:
+> o preflight rejeita intencionalmente uma rota Caddy de pairing existente.
+> A seção de instalação abaixo é histórico/recovery de bootstrap.
+> **Faltam o provisionamento SSH completo e os testes de pairing ponta a ponta.**
+>
 > **CHECKPOINT — 14/10/2026 (encerramento):** o operador informou que
 > **não executou NENHUM** dos comandos Oracle abaixo (nem cópia para
 > `/root`, nem hash, `--check` ou `--apply`). O novo serviço de
@@ -11,7 +20,7 @@
 > sob controle do operador. Consulte o
 > [checkpoint completo](checkpoint-2026-10-14-pairing-v2.md).
 >
-Estado em 2026-10-14 UTC: **artefatos compilados e preparados; NÃO instalado em produção**.
+Estado histórico em 2026-10-14 UTC: artefatos preparados, ainda não instalados.\nEstado confirmado em 2026-10-15 04:16 UTC: infraestrutura v2 implantada e validada.
 
 ## Objetivo e limites
 
@@ -39,7 +48,7 @@ manifests de SHA-256 **fixados**, backups, checagens de serviços, e rollback.
 **SHA-256 atual do instalador (revalidado em 15/10; confirmar independentemente antes de executar):**
 
 ```text
-1be09a37a0a558f951750d265103387e61f050c1d76733aba098b6afc629f18b
+0bbef6572989ab5d7c14f4e38a4d31e62b2536ffafefb73638c09fdc7fa4a7ff
 ```
 
 ## Única intervenção do administrador Oracle (conta `ubuntu`)
@@ -129,3 +138,44 @@ da conexão no cliente.
 **Não cole senhas, códigos TOTP, tokens de pareamento nem chaves privadas**
 no chat ou no GitHub. Se o instalador retornar erro, interrompa, copie
 somente mensagens não sensíveis e preserve os backups para diagnóstico.
+
+
+## Implantação concluída em 15/10/2026
+
+Tentativa 1, usando instalador original: rollback após falha de
+`curl` status 7 para `127.0.0.1:8002`. Logs root confirmaram que
+o serviço chegou a iniciar e criar o SQLite, mas uma checagem imediata
+não encontrou a porta pronta. Reprodução isolada com os dois sockets
+systemd e o próprio serviço respondeu 200. O instalador passou a
+aguardar readiness por até 30 segundos, com retry.
+
+Tentativa 2: a saúde local e a saúde HTTPS de pairing passaram, mas
+a saúde da interface antiga de aprovação devolve texto `ok`, não
+JSON, causando rollback; o instalador foi corrigido e testado.
+
+Tentativa 3 (sucesso): no serviço transitório independente
+`ai-lab-pairing-v2-rollout-final-20261015`, depois de
+`--check` e 8 testes unitários aprovados, o instalador informou:
+
+```text
+BACKUP=/var/backups/ai-lab-gateway/pairing-v2-20261015T041535Z
+HEALTH_OK=http://127.0.0.1:8002/pairing/health
+HEALTH_OK=https://gateway.debasti.com/pairing/health
+HEALTH_OK=https://gateway.debasti.com/approvals/health
+PAIRING_PILOT_DEPLOYED; existing SSH keys untouched
+```
+
+Verificação MCP independente confirmou que Oracle e Raspberry
+respondem por SSH, e os quatro serviços v1 e serviço v2 estão ativos.
+Banco local: `/var/lib/ai-lab-pairing/pairing.sqlite3` 0600,
+UID exclusivo. Sockets `/run/ai-lab-pairing/mcp.sock` com
+grupo `ai-lab-gateway` e
+`/run/ai-lab-pairing/approver.sock` com
+grupo `ai-lab-approver`, ambos 0660. A conta `ai-maintenance`
+não conseguiu conectar a nenhum deles (EACCES).
+
+**Próximo marco:** publicar/testar as ferramentas MCP de pairing
+no catálogo do cliente, testar claim e aprovação com identidade
+legítima, implementar provisionamento SSH completo isolado e
+avaliar integração end-to-end em Linux descartável. Permissões
+Restrito/Parcial/Irrestrito ainda não ativadas em alvos reais.
