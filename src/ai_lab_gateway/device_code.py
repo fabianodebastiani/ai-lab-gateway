@@ -294,39 +294,41 @@ class DeviceCodeStore:
         moment=int(time.time()) if now is None else now
         normalized=_clean_code(user_code)
         principal_digest=_digest_key(self.key,b"principal",operator_subject)
+        # Record each GUESS (including failed lookups) in a separate committed
+        # transaction: a rollback on unknown code must not erase rate limits.
         with closing(self._db()) as db:
             db.execute("BEGIN IMMEDIATE")
-            try:
-                db.execute("DELETE FROM code_lookups WHERE attempted_at<=?",
-                           (moment-CODE_LOOKUP_WINDOW,))
-                per_user = db.execute(
-                    "SELECT count(*) FROM code_lookups WHERE principal_digest=?",
-                    (principal_digest,)).fetchone()[0]
-                total = db.execute("SELECT count(*) FROM code_lookups").fetchone()[0]
-                if per_user>=MAX_CODE_LOOKUPS_PER_PRINCIPAL or total>=MAX_CODE_LOOKUPS_GLOBAL:
-                    raise PermissionError("pairing code lookup quota exceeded")
-                db.execute("INSERT INTO code_lookups(principal_digest,attempted_at) "
-                           "VALUES (?,?)",(principal_digest,moment))
-                row=db.execute("SELECT request_id,device_id,display_name,"
-                               "tunnel_public_key,host_public_key,confirmation,"
-                               "persistent,operator_subject,state,expires_at "
-                               "FROM sessions WHERE code_digest=?",
-                               (_digest_key(self.key,b"code",normalized),)).fetchone()
-                if (row is None or row["state"]!="proven" or
-                      row["expires_at"]<=moment or
-                      row["operator_subject"] not in (None,operator_subject)):
-                    raise PermissionError("pairing code unavailable")
-                changed=db.execute(
-                    "UPDATE sessions SET operator_subject=? WHERE request_id=? "
-                    "AND state='proven' AND expires_at>? "
-                    "AND (operator_subject IS NULL OR operator_subject=?)",
-                    (operator_subject,row["request_id"],moment,operator_subject))
-                if changed.rowcount!=1:
-                    raise PermissionError("pairing code unavailable")
+            db.execute("DELETE FROM code_lookups WHERE attempted_at<=?",
+                       (moment-CODE_LOOKUP_WINDOW,))
+            per_user=db.execute(
+                "SELECT count(*) FROM code_lookups WHERE principal_digest=?",
+                (principal_digest,)).fetchone()[0]
+            total=db.execute("SELECT count(*) FROM code_lookups").fetchone()[0]
+            if per_user>=MAX_CODE_LOOKUPS_PER_PRINCIPAL or total>=MAX_CODE_LOOKUPS_GLOBAL:
                 db.commit()
-            except BaseException:
-                db.rollback()
-                raise
+                raise PermissionError("pairing code lookup quota exceeded")
+            db.execute("INSERT INTO code_lookups(principal_digest,attempted_at) "
+                       "VALUES (?,?)",(principal_digest,moment))
+            db.commit()
+        with closing(self._db()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row=db.execute("SELECT request_id,device_id,display_name,"
+                           "tunnel_public_key,host_public_key,confirmation,"
+                           "persistent,operator_subject,state,expires_at "
+                           "FROM sessions WHERE code_digest=?",
+                           (_digest_key(self.key,b"code",normalized),)).fetchone()
+            if (row is None or row["state"]!="proven" or
+                  row["expires_at"]<=moment or
+                  row["operator_subject"] not in (None,operator_subject)):
+                raise PermissionError("pairing code unavailable")
+            changed=db.execute(
+                "UPDATE sessions SET operator_subject=? WHERE request_id=? "
+                "AND state='proven' AND expires_at>? "
+                "AND (operator_subject IS NULL OR operator_subject=?)",
+                (operator_subject,row["request_id"],moment,operator_subject))
+            if changed.rowcount!=1:
+                raise PermissionError("pairing code unavailable")
+            db.commit()
         return {
             "request_id":row["request_id"],"device_id":row["device_id"],
             "device_name":row["display_name"],"confirmation":row["confirmation"],
