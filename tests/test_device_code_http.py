@@ -101,7 +101,10 @@ class DeviceHTTPTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.store.confirm(request_id=pending["request_id"],
                 operator_subject="auth0|test-operator",
-                confirmation=pending["confirmation"])
+                confirmation="AAAA-AAAA")
+        self.assertEqual(self.store.confirm(request_id=pending["request_id"],
+                operator_subject="auth0|test-operator",
+                confirmation=pending["confirmation"])["status"],"approved")
         unknown = self.request("/pairing/device/poll", {
             "request_id": pending["request_id"],
             "device_secret": "X" * 43
