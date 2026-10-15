@@ -193,10 +193,24 @@ def inspect_candidate_environment(candidate: dict, *, files: dict,
 
 
 def inspect_fixed_production_environment(candidate: dict, *,
-                                         effective_sshd: str) -> dict:
+                                         effective_sshd: str,
+                                         reserved_socket: socket.socket | None = None) -> dict:
     """Root-only read-only inspection. NOT a deployment or authorization."""
     if os.geteuid() != 0:
         raise PermissionError("actual root required for fixed-path inspection")
+    # During the controlled root apply the caller holds an exclusive bind to
+    # 127.0.0.1:10003. Rebinding it to test availability would necessarily
+    # fail. No caller-provided Boolean can bypass the socket identity check.
+    if reserved_socket is not None:
+        if (type(reserved_socket) is not socket.socket
+                or reserved_socket.fileno() < 0
+                or reserved_socket.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE)
+                != socket.SOCK_STREAM
+                or reserved_socket.getsockname() != ("127.0.0.1", PORT)):
+            raise PermissionError("root SSH candidate port is not reserved")
+        free_or_reserved = True
+    else:
+        free_or_reserved = loopback_port_available()
     return inspect_candidate_environment(
         candidate,
         files={
@@ -213,5 +227,5 @@ def inspect_fixed_production_environment(candidate: dict, *,
             "registry": 0, "host": 0,
         },
         effective_sshd=effective_sshd,
-        port_is_free=loopback_port_available(),
+        port_is_free=free_or_reserved,
     )
