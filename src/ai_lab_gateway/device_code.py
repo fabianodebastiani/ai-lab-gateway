@@ -450,6 +450,7 @@ class DeviceCodeStore:
 
     def stage_connection_offer(
             self, *, request_id: str, offer: dict,
+            trusted_gateway_host_public_key: str,
             provisioner_verified: bool = False, now: int | None = None) -> dict:
         """Stage an immutable PUBLIC connection offer after trusted provisioning.
 
@@ -476,6 +477,12 @@ class DeviceCodeStore:
                 persistent=bool(row["persistent"]),
                 tunnel_key=row["tunnel_public_key"],
                 host_key=row["host_public_key"])
+            # The trusted provisioner MUST read this host identity from
+            # its root-controlled server configuration (never device/MCP input).
+            canonical_host = _validate_public_key(trusted_gateway_host_public_key)
+            if validated["gateway_ssh_host_key"] != canonical_host:
+                db.rollback()
+                raise PermissionError("SSH gateway host identity was substituted")
             if db.execute("SELECT 1 FROM connection_offers WHERE request_id=?",
                           (request_id,)).fetchone():
                 db.rollback()
