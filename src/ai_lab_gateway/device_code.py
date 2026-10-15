@@ -136,7 +136,8 @@ class DeviceCodeStore:
               tunnel_public_key TEXT NOT NULL,
               host_public_key TEXT NOT NULL,
               nonce TEXT NOT NULL,
-              confirmation TEXT NOT NULL,
+              confirmation_digest TEXT NOT NULL,
+              confirm_failures INTEGER NOT NULL DEFAULT 0,
               persistent INTEGER NOT NULL,
               state TEXT NOT NULL,
               operator_subject TEXT,
@@ -213,13 +214,14 @@ class DeviceCodeStore:
                 db.execute("""INSERT INTO sessions (
                     request_id,code_digest,secret_digest,device_id,display_name,
                     source_digest,tunnel_public_key,host_public_key,nonce,
-                    confirmation,persistent,state,issued_at,expires_at
+                    confirmation_digest,persistent,state,issued_at,expires_at
                  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     request_id, _digest_key(self.key, b"code", code),
                     _digest_key(self.key, b"device", secret),
                     device_id, display_name.strip(), source_digest,
-                    tunnel, host, nonce, confirmation, int(persistent),
-                    "pending", moment, expiry))
+                    tunnel, host, nonce, _digest_key(
+                        self.key, b"confirm", confirmation.replace("-", "")),
+                    int(persistent), "pending", moment, expiry))
                 db.commit()
             except BaseException:
                 db.rollback()
@@ -340,7 +342,7 @@ class DeviceCodeStore:
         with closing(self._db()) as db:
             db.execute("BEGIN IMMEDIATE")
             row=db.execute("SELECT request_id,device_id,display_name,"
-                           "tunnel_public_key,host_public_key,confirmation,"
+                           "tunnel_public_key,host_public_key,"
                            "persistent,operator_subject,state,expires_at "
                            "FROM sessions WHERE code_digest=?",
                            (_digest_key(self.key,b"code",normalized),)).fetchone()
@@ -358,7 +360,7 @@ class DeviceCodeStore:
             db.commit()
         return {
             "request_id":row["request_id"],"device_id":row["device_id"],
-            "device_name":row["display_name"],"confirmation":row["confirmation"],
+            "device_name":row["display_name"],
             "tunnel_fingerprint":_fingerprint(row["tunnel_public_key"]),
             "host_fingerprint":_fingerprint(row["host_public_key"]),
             "persistent":bool(row["persistent"]),"status":"awaiting_human_confirmation",
@@ -366,28 +368,53 @@ class DeviceCodeStore:
         }
 
     def confirm(self, *, request_id: str, operator_subject: str,
-                confirmation: str, consent_verified: bool = False,
-                now: int | None = None) -> dict:
-        """Trusted service ONLY: caller must independently verify human consent.
+                confirmation: str, now: int | None = None) -> dict:
+        """Require the **terminal-only** second code supplied by the human.
 
-        Never map a model-supplied flag or text to consent_verified=True.
+        Auth0 MCP lookup never returns this code or the challenge needed to
+        compute it. A model cannot turn "yes" or a boolean into approval.
+        The person reads the proof off the target Linux and retypes it in
+        ChatGPT. Each incorrect guess commits to a persistent per-request
+        limit (4), including against a correct subsequent attempt.
         """
-        if consent_verified is not True:
-            raise PermissionError("independent human consent evidence is required")
         if not isinstance(operator_subject,str) or not operator_subject:
             raise PermissionError("verified Auth0 operator required")
         moment=int(time.time()) if now is None else now
-        with closing(self._db()) as db, db:
+        try:
+            normalized=_clean_code(confirmation)
+        except ValueError as exc:
+            # Generic error; malformed attempts count only once the
+            # request is bound to a verified operator.
+            normalized=""
+        with closing(self._db()) as db:
             db.execute("BEGIN IMMEDIATE")
-            row=db.execute("SELECT confirmation FROM sessions WHERE "
-                           "request_id=? AND operator_subject=? AND state='proven' "
-                           "AND expires_at>?",(request_id,operator_subject,moment)).fetchone()
-            if not row or not isinstance(confirmation,str) or not hmac.compare_digest(
-                row["confirmation"],confirmation):
-                raise PermissionError("request is unavailable or confirmation mismatched")
-            db.execute("UPDATE sessions SET state='approved',reviewed_at=? "
-                       "WHERE request_id=? AND operator_subject=? AND state='proven'",
-                       (moment,request_id,operator_subject))
+            row=db.execute(
+                "SELECT confirmation_digest,confirm_failures FROM sessions WHERE "
+                "request_id=? AND operator_subject=? AND state='proven' "
+                "AND expires_at>?", (request_id,operator_subject,moment)).fetchone()
+            if not row:
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
+            if row["confirm_failures"] >= 4:
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
+            expected=_digest_key(self.key,b"confirm",normalized)
+            if not hmac.compare_digest(row["confirmation_digest"],expected):
+                # Explicit COMMIT before raising. Failed PIN guesses must not
+                # disappear due to transaction rollback.
+                db.execute("UPDATE sessions SET confirm_failures=confirm_failures+1 "
+                           "WHERE request_id=? AND operator_subject=? AND state='proven'",
+                           (request_id,operator_subject))
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
+            changed=db.execute(
+                "UPDATE sessions SET state='approved',reviewed_at=? "
+                "WHERE request_id=? AND operator_subject=? AND state='proven' "
+                "AND expires_at>? AND confirm_failures<4",
+                (moment,request_id,operator_subject,moment))
+            if changed.rowcount!=1:
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
             db.commit()
         return {"request_id":request_id,"status":"approved","access_mode":"restricted"}
 
