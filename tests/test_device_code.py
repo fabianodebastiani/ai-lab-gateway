@@ -51,6 +51,37 @@ class DeviceCodeTests(unittest.TestCase):
                device_secret=pending["device_secret"],
                signature_b64=self.proof(pending,private),now=now)
 
+    def test_sqlite_database_is_owner_only_and_sidecars_are_private(self):
+        import os, stat
+        database=self.root/"codes.sqlite"
+        self.assertEqual(stat.S_IMODE(database.stat().st_mode),0o600)
+        private=self.root/"fresh-private-dir"
+        child=private/"codes.sqlite"
+        DeviceCodeStore(child,hmac_key=b"K"*32)
+        self.assertEqual(stat.S_IMODE(private.stat().st_mode),0o700)
+        self.assertEqual(stat.S_IMODE(child.stat().st_mode),0o600)
+        # An existing database with lax file permissions cannot silently be
+        # reopened with its session/token hashes exposed.
+        child.chmod(0o644)
+        with self.assertRaises(PermissionError):
+            DeviceCodeStore(child,hmac_key=b"K"*32)
+
+    def test_symlinked_db_or_unprotected_parent_is_rejected(self):
+        private=self.root/"db-private"
+        private.mkdir(mode=0o700)
+        target=private/"real.sqlite"
+        target.write_bytes(b"not a database")
+        target.chmod(0o600)
+        link=private/"codes.sqlite"
+        link.symlink_to(target)
+        with self.assertRaises(PermissionError):
+            DeviceCodeStore(link,hmac_key=b"K"*32)
+        shared=self.root/"too-open"
+        shared.mkdir(mode=0o755)
+        with self.assertRaises(PermissionError):
+            DeviceCodeStore(shared/"codes.sqlite",hmac_key=b"K"*32)
+        self.assertFalse((shared/"codes.sqlite").exists())
+
     def test_code_is_random_human_typeable_40_bits(self):
         p=self.new()
         self.assertEqual(CODE_ENTROPY_BITS,40)
