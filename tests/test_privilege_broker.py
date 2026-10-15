@@ -154,3 +154,27 @@ def test_web_approval_pending_expiry(broker, monkeypatch):
     t[0] += broker.PENDING_TTL + 1
     assert broker.approval_dispatch({"action": "approve", "request_id": rid})["error"] == "not_pending"
     assert not broker.approval_dispatch({"action": "list"})["requests"]
+
+
+def test_pairing_service_journal_is_read_only_and_requires_human_approval(broker, monkeypatch):
+    """MCP must never be able to provide shell text to this privileged operation."""
+    seen = []
+    def runner(argv, **kwargs):
+        seen.append((tuple(argv), kwargs))
+        return subprocess.CompletedProcess(argv, 0, "pairing-error\\n", "")
+    monkeypatch.setattr(broker.subprocess, "run", runner)
+    requested = new_request(broker, operation="pairing-service-journal", ttl=300)
+    assert requested["ok"] and requested["status"] == "pending"
+    rid = requested["request_id"]
+    assert execute(broker, rid)["error"] == "not_approved"
+    assert seen == []
+    assert broker.approval_dispatch({"action": "approve", "request_id": rid})["status"] == "approved"
+    reply = execute(broker, rid)
+    assert reply["ok"] and reply["stdout"] == "pairing-error\\n"
+    assert seen == [
+        (("/usr/bin/journalctl", "--unit=ai-lab-pairing.service",
+          "--no-pager", "--lines=60", "--output=short-iso"),
+         {"shell": False, "capture_output": True, "text": True, "timeout": 15})
+    ]
+    assert execute(broker, rid)["error"] == "not_approved"
+    assert new_request(broker, operation="pairing-service-journal;sh")["error"] == "invalid_parameters"
