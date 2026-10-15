@@ -68,7 +68,7 @@ def run(*argv, check=True):
     return subprocess.run(argv, check=check, capture_output=True, text=True, timeout=45)
 
 
-def wait_for_health(url: str, *, timeout_seconds: int = 30) -> dict:
+def wait_for_health(url: str, *, timeout_seconds: int = 30, plain_ok: bool = False) -> dict:
     """Allow systemd and the tiny Oracle VM to finish service startup.
 
     A single curl immediately after reload is racy, especially on the first
@@ -80,6 +80,8 @@ def wait_for_health(url: str, *, timeout_seconds: int = 30) -> dict:
     while True:
         try:
             response = run("/usr/bin/curl", "-fsS", "--max-time", "3", url)
+            if plain_ok and response.stdout.strip() == "ok":
+                return {"status": "ok"}
             value = json.loads(response.stdout)
             if isinstance(value, dict) and value.get("status") == "ok":
                 return value
@@ -287,7 +289,7 @@ def main():
             "https://gateway.debasti.com/pairing/health",
             "https://gateway.debasti.com/approvals/health",
         ):
-            wait_for_health(url)
+            wait_for_health(url, plain_ok=url.endswith("/approvals/health"))
             print("HEALTH_OK=" + url, flush=True)
         services = run("/usr/bin/systemctl", "is-active",
                        *SERVICES, "ai-lab-pairing.service")
