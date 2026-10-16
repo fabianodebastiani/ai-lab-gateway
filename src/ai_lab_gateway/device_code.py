@@ -434,6 +434,59 @@ class DeviceCodeStore:
             db.commit()
         return {"request_id":request_id,"status":"approved","access_mode":"restricted"}
 
+    def confirm_with_pairing_code(self, *, request_id: str,
+                                  operator_subject: str, user_code: str,
+                                  now: int | None = None) -> dict:
+        """One-code TV pairing: same terminal-only code can be redeemed once.
+
+        The separate, already Auth0-authorized MCP caller first looks up and
+        binds a proven device code to its principal, presents the exact device
+        to the human, then calls this action with the ORIGINAL code. Never
+        return the code through MCP or a device lookup response. This is a
+        bearer-code + verified-principal consent mechanism; it does not prove
+        that the ChatGPT host displayed a native confirmation dialog. A
+        deployment requiring host-attested consent must keep a separate
+        human approval boundary until that property is verifiable.
+
+        Enrollment-only: does NOT install SSH or grant sudo.
+        """
+        if not isinstance(operator_subject, str) or not operator_subject:
+            raise PermissionError("verified Auth0 operator required")
+        moment = int(time.time()) if now is None else now
+        try:
+            normalized = _clean_code(user_code)
+        except (ValueError, TypeError):
+            normalized = ""
+        with closing(self._db()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT code_digest, confirm_failures FROM sessions "
+                "WHERE request_id=? AND operator_subject=? AND state='proven' "
+                "AND expires_at>?",
+                (request_id, operator_subject, moment)).fetchone()
+            if row is None or row["confirm_failures"] >= 4:
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
+            supplied = _digest_key(self.key, b"code", normalized)
+            if not hmac.compare_digest(row["code_digest"], supplied):
+                db.execute(
+                    "UPDATE sessions SET confirm_failures=confirm_failures+1 "
+                    "WHERE request_id=? AND operator_subject=? AND state='proven'",
+                    (request_id, operator_subject))
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
+            changed = db.execute(
+                "UPDATE sessions SET state='approved',reviewed_at=? "
+                "WHERE request_id=? AND operator_subject=? AND state='proven' "
+                "AND expires_at>? AND confirm_failures<4",
+                (moment, request_id, operator_subject, moment))
+            if changed.rowcount != 1:
+                db.commit()
+                raise PermissionError("pairing confirmation unavailable")
+            db.commit()
+        return {"request_id": request_id, "status": "approved",
+                "access_mode": "restricted"}
+
     def deny(self, *, request_id: str, operator_subject: str,
              now: int | None = None) -> dict:
         moment=int(time.time()) if now is None else now
