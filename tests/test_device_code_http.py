@@ -159,7 +159,7 @@ class DeviceHTTPTests(unittest.TestCase):
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("No ChatGPT: Conectar dispositivo", output)
-        self.assertIn("Confirmação:", output)
+        self.assertNotIn("Confirmação:", output)
         user_code = re.search(r"Código: ([A-Z2-9]{4}-[A-Z2-9]{4})", output).group(1)
         looked_up = self.store.lookup(user_code=user_code,operator_subject="auth0|owner")
         self.assertEqual(looked_up["status"], "awaiting_human_confirmation")
