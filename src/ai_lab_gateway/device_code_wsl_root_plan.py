@@ -31,8 +31,14 @@ def _host_keys_for_endpoint(raw: bytes, endpoint: str) -> list[str]:
         if len(items) < 3:
             raise PermissionError("malformed gateway known_hosts")
         if items[0] == endpoint:
-            if len(items) != 3 or items[1] != "ssh-ed25519":
-                raise PermissionError("candidate pinned host type invalid")
+            if len(items) != 3:
+                raise PermissionError("malformed host identity pin")
+            if items[1] != "ssh-ed25519":
+                # The legacy 10002 connection also pins RSA/ECDSA keys;
+                # these cannot substitute for its separate Ed25519 pin.
+                if endpoint == "[127.0.0.1]:10002":
+                    continue
+                raise PermissionError("candidate host pin is not Ed25519")
             result.append(_validate_public_key(" ".join(items[1:])))
         elif endpoint in items[0].split(",") or (
                 items[0].startswith("@") and endpoint in stripped):
