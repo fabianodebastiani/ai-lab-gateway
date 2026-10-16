@@ -20,7 +20,7 @@ class DeviceCodeMCPBoundaryTests(unittest.TestCase):
         tools=[node for node in feature_guard[0].body
                if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))]
         self.assertEqual([node.name for node in tools],
-                         ["pairing_lookup_code","pairing_confirm_code"])
+                         ["pairing_lookup_code","pairing_confirm_code","pairing_confirm_single_code"])
         for tool in tools:
             code=ast.unparse(tool)
             self.assertIn("_authorize_device_pairing()",code)
