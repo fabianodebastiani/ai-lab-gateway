@@ -5,8 +5,8 @@
 # This does not install, enable or authorize systemd, sshd, sudoers or SSH.
 set -eu
 
-RELEASE_COMMIT="b3b5f2584381c32700fcb22080913680e44a7290"
-CLIENT_SHA256="e4a9a0f3b1fb8bc66669d411d8f1f75711fbd5f813cdbc0f96546397c90be0d2"
+RELEASE_COMMIT="909a66a7fa3654b9b7bf707f8c44a5f5ec39dcba"
+CLIENT_SHA256="8c258ae6f23dc3bd00a9809443acfea9f1edf0861cf1b82ee3a01af8f0e7645b"
 CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${RELEASE_COMMIT}/scripts/device_code_pair_linux.py"
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -60,6 +60,15 @@ sys.exit(0 if digest == sys.argv[2] else 1)
 fi
 printf '%s\n' "AI Lab: hash SHA-256 validado. Executando sem privilégios administrativos."
 
-# A single shell command is sufficient for preliminary HTTPS registration.
-# Extra CLI arguments can override --base-url for isolated loopback tests.
-python3 "$client" --base-url https://gateway.debasti.com "$@"
+# This *public* Gateway SSH host identity was independently checked
+# against Oracle's own host public key and the previously trusted WSL
+# known_hosts entry. It is distributed with the versioned HTTPS bootstrap,
+# never read unverified from the pending pairing offer.
+gateway_pin="$directory/gateway-ssh-ed25519.pub"
+printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIArkQEjGi6HfiJlMeKv8yv3xf6XripB4npdSSnYWFGjA' > "$gateway_pin"
+chmod 600 "$gateway_pin"
+
+# On a Linux with sshd already present the client uses the REAL sshd key.
+# A fresh device without sshd must complete its local OpenSSH installation
+# before it can be activated; the enrollment request alone never grants root.
+python3 "$client" --base-url https://gateway.debasti.com --trusted-gateway-host-key "$gateway_pin" "$@"
