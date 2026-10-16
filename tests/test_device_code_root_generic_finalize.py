@@ -61,7 +61,7 @@ class RootGenericActivationTests(unittest.TestCase):
         path.write_text(json.dumps(value, sort_keys=True) + "\n")
         path.chmod(0o640)
 
-    def _call(self, data):
+    def _call(self, socket_path, data):
         if data["action"] == "inspect_staged":
             return {"candidate": self.candidate}
         if data["action"] == "mark_active":
@@ -97,10 +97,10 @@ class RootGenericActivationTests(unittest.TestCase):
         self.assertEqual(pol["users"][1], self.policy["users"][1])
 
     def test_failed_active_mark_rolls_back_both_files(self):
-        def fail_mark(msg):
+        def fail_mark(socket_path, msg):
             if msg["action"] == "mark_active":
                 raise PermissionError("device approval expired")
-            return self._call(msg)
+            return self._call(socket_path, msg)
         self._environment(rpc=fail_mark)
         self.assertRaises(
             PermissionError, finish._commit_active,
