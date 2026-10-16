@@ -190,7 +190,7 @@ def inspect_root_environment() -> dict:
             Path("/etc/ai-lab-gateway/device-code-keys")),
         "root_candidate_journal_dir": path_metadata(
             Path("/var/lib/ai-lab-gateway/root-provision-10003")),
-        "known_live_ports": [10001, 10002],
+        "legacy_expected_ports": [10001, 10002],
         "candidate_port": 10003,
         "effective_sshd_properties": {
             key: next((
