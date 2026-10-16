@@ -33,6 +33,11 @@ class ProvisionHandoff:
         if not isinstance(msg, dict) or not isinstance(msg.get("action"), str):
             return {"ok": False, "error": "invalid_request"}
         action = msg["action"]
+        if action == "list_staged" and set(msg) == {"action"}:
+            try:
+                return {"ok": True, "requests": self.store.list_staged_request_ids()}
+            except (ValueError, PermissionError, OSError):
+                return {"ok": False, "error": "candidate_unavailable"}
         if action == "list_approved" and set(msg) == {"action"}:
             try:
                 rows = self.store.list_approved_request_ids()
@@ -45,6 +50,9 @@ class ProvisionHandoff:
         try:
             if action == "inspect_approved" and set(msg) == {"action", "request_id"}:
                 return {"ok": True, "candidate": self.store.approved_root_snapshot(
+                    request_id=rid)}
+            if action == "inspect_staged" and set(msg) == {"action", "request_id"}:
+                return {"ok": True, "candidate": self.store.staged_root_snapshot(
                     request_id=rid)}
             if action == "publish_offer" and set(msg) == {
                     "action", "request_id", "offer", "gateway_ssh_host_key"}:
