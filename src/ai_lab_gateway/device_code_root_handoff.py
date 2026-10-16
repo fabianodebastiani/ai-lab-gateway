@@ -57,10 +57,7 @@ class ProvisionHandoff:
             if action == "mark_active" and set(msg) == {"action", "request_id"}:
                 # Caller is root; it MUST have verified SSH using trusted
                 # pinned host identity before asking for activation.
-                snapshot = self.store.staged_candidate_snapshot(request_id=rid)
-                if snapshot["device_id"] not in {
-                        x["device_id"] for x in self.store.list_staged_candidates()}:
-                    raise PermissionError("candidate no longer staged")
+                self.store.staged_candidate_snapshot(request_id=rid)
                 return {"ok": True, "result": self.store.activate(
                     request_id=rid, provisioner_verified=True)}
         except (ValueError, PermissionError, OSError, TypeError, KeyError):
