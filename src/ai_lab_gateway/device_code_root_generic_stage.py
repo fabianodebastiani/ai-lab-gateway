@@ -105,21 +105,39 @@ def _create_management_identity(device_id: str, gateway_uid: int, gateway_gid: i
         raise PermissionError("invalid approved device ID")
     _root_directory(KEY_ROOT, group=gateway_gid, mode=0o750)
     dest = KEY_ROOT / device_id
-    if dest.exists() or dest.is_symlink():
-        raise PermissionError("management key already staged; no silent rotation")
-    dest.mkdir(mode=0o750)
-    os.chown(dest, 0, gateway_gid)
-    os.chmod(dest, 0o750)
+    if dest.is_symlink():
+        raise PermissionError("symlinked management key directory")
+    fresh = not dest.exists()
+    if fresh:
+        dest.mkdir(mode=0o750)
+        os.chown(dest, 0, gateway_gid)
+        os.chmod(dest, 0o750)
+    state = dest.lstat()
+    if (not stat.S_ISDIR(state.st_mode) or state.st_uid != 0
+            or state.st_gid != gateway_gid
+            or stat.S_IMODE(state.st_mode) != 0o750):
+        raise PermissionError("management key directory ownership changed")
     private = dest / "identity"
-    subprocess.run(
-        ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519",
-         "-N", "", "-f", str(private),
-         "-C", "ai-lab-device-code-" + device_id],
-        check=True, capture_output=True, timeout=15)
     public = private.with_suffix(".pub")
-    for file in (private, public):
-        os.chown(file, 0, gateway_gid)
-        os.chmod(file, 0o640)
+    if fresh:
+        subprocess.run(
+            ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519",
+             "-N", "", "-f", str(private),
+             "-C", "ai-lab-device-code-" + device_id],
+            check=True, capture_output=True, timeout=15)
+        for file in (private, public):
+            os.chown(file, 0, gateway_gid)
+            os.chmod(file, 0o640)
+    else:
+        # A previous attempt can fail after fsync'ing both keys. Resume ONLY
+        # by validating that same protected pair: never silently rotate.
+        for file in (private, public):
+            info = file.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                    or info.st_gid != gateway_gid
+                    or info.st_nlink != 1
+                    or stat.S_IMODE(info.st_mode) != 0o640):
+                raise PermissionError("existing per-device key is not trusted")
     verified = subprocess.run(
         ["/usr/bin/setpriv", "--reuid", str(gateway_uid),
          "--regid", str(gateway_gid), "--clear-groups",
