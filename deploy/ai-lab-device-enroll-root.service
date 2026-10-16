@@ -1,0 +1,29 @@
+[Unit]
+Description=AI Lab Gateway restricted SSH enrollment (fixed root operations)
+After=network-online.target ai-lab-device-code.service
+Wants=network-online.target
+Requires=ai-lab-device-code.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=PYTHONPATH=/opt/ai-lab-gateway/src
+ExecStart=/usr/bin/python3 /usr/local/libexec/ai-lab-device-enroll-root
+TimeoutStartSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET
+ReadWritePaths=/etc/ai-lab-gateway /var/lib/ai-lab-gateway/.ssh /var/lib/ai-lab-tunnel/.ssh /var/lib/ai-lab-root-provision
+InaccessiblePaths=/etc/ai-lab-approval /var/lib/ai-lab-approval /var/lib/ai-lab-privilege-broker
