@@ -12,22 +12,17 @@ Environment=PYTHONPATH=/opt/ai-lab-gateway/src
 ExecStart=/usr/bin/python3 /usr/local/libexec/ai-lab-device-enroll-root
 TimeoutStartSec=30
 UMask=0077
+# Tested against the actual Oracle OCI/systemd host:
+# This worker must drop from root to the unprivileged gateway UID for
+# independent SSH key and target-connection verification. On this kernel,
+# PrivateDevices, ProtectKernelModules/Tunables, ProtectClock,
+# LockPersonality, RestrictAddressFamilies, SystemCallArchitectures and
+# RestrictSUIDSGID each deny setresuid even for a downward transition.
+# Keep the independently validated compatible sandbox below.
 NoNewPrivileges=true
-# Root worker verifies SSH as gateway UID via setpriv --reuid; blocking
-# setuid/setgid syscalls breaks that necessary *downward* UID transition.
 PrivateTmp=true
-PrivateDevices=false
-# PrivateDevices and RestrictAddressFamilies in this OCI image deny
-# setresuid, preventing the root worker from verifying an SSH key using
-# the less-privileged gateway UID. Keep other service confinement.
 ProtectSystem=strict
 ProtectHome=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
 ProtectControlGroups=true
-ProtectClock=true
-RestrictSUIDSGID=false
-LockPersonality=true
-SystemCallArchitectures=native
 ReadWritePaths=/etc/ai-lab-gateway /var/lib/ai-lab-gateway/.ssh /var/lib/ai-lab-tunnel/.ssh /var/lib/ai-lab-root-provision
 InaccessiblePaths=/etc/ai-lab-approval /var/lib/ai-lab-approval /var/lib/ai-lab-privilege-broker
