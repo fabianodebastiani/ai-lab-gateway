@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-from ai_lab_gateway.device_code_operator import call_operator_lookup, call_operator_confirm
+from ai_lab_gateway.device_code_operator import call_operator_lookup, call_operator_confirm_single_code
 
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -63,10 +63,10 @@ class LabServerTests(unittest.TestCase):
             self.assertEqual(found["status"],"awaiting_human_confirmation")
             self.assertEqual(found["access_mode"],"restricted")
             self.assertNotIn("confirmation",found)
-            terminal_pin=re.search(r"Confirmação: ([A-Z2-9]{4}-[A-Z2-9]{4})",
-                                   result.stdout).group(1)
-            approved=call_operator_confirm(path=socket,subject="auth0|staging-demo",
-                       request_id=found["request_id"],confirmation=terminal_pin)
+            self.assertNotIn("Confirmação:",result.stdout)
+            approved=call_operator_confirm_single_code(
+                path=socket,subject="auth0|staging-demo",
+                request_id=found["request_id"],user_code=code)
             self.assertEqual(approved["status"],"approved")
             self.assertEqual(approved["access_mode"],"restricted")
             self.assertEqual(stat.S_IMODE(state.stat().st_mode),0o700)
