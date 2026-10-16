@@ -56,7 +56,7 @@ def production_paths(*, tunnel_uid: int, tunnel_gid: int,
     return RootSSHPaths(
         authorized_keys=PROD_AUTHORIZED_KEYS,
         known_hosts=PROD_KNOWN_HOSTS,
-        journal_dir=Path("/var/lib/ai-lab-gateway/root-provision-10003"),
+        journal_dir=Path("/var/lib/ai-lab-root-provision/ssh-10003"),
         tunnel_uid=tunnel_uid, tunnel_gid=tunnel_gid,
         gateway_uid=gateway_uid, gateway_gid=gateway_gid,
     )
