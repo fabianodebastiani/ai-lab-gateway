@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import serialization
 from ai_lab_gateway.device_code import DeviceCodeStore
 from ai_lab_gateway.device_code_operator import (
     OperatorProtocol, create_operator_socket, call_operator_lookup,
-    call_operator_confirm,
+    call_operator_confirm, call_operator_confirm_single_code,
 )
 
 
@@ -80,6 +80,35 @@ class OperatorTests(unittest.TestCase):
                   request_id=p["request_id"], confirmation=p["confirmation"])
         self.assertEqual(approved["status"],"approved")
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode),0o600)
+
+    def test_one_code_binds_verified_subject_and_requires_original_device_code(self):
+        p = self.prove()
+        self.serve()
+        looked_up = call_operator_lookup(
+            path=self.path, subject="auth0|authorized",
+            user_code=p["user_code"])
+        self.assertEqual(looked_up["request_id"], p["request_id"])
+        self.assertNotIn("user_code", looked_up)
+        self.assertNotIn("confirmation", looked_up)
+
+        with self.assertRaises(PermissionError):
+            call_operator_confirm_single_code(
+                path=self.path, subject="auth0|other",
+                request_id=p["request_id"], user_code=p["user_code"])
+        with self.assertRaises(PermissionError):
+            call_operator_confirm_single_code(
+                path=self.path, subject="auth0|authorized",
+                request_id=p["request_id"], user_code="AAAA-AAAA")
+        approved = call_operator_confirm_single_code(
+            path=self.path, subject="auth0|authorized",
+            request_id=p["request_id"], user_code=p["user_code"])
+        self.assertEqual(approved, {
+            "request_id": p["request_id"], "status": "approved",
+            "access_mode": "restricted"})
+        with self.assertRaises(PermissionError):
+            call_operator_confirm_single_code(
+                path=self.path, subject="auth0|authorized",
+                request_id=p["request_id"], user_code=p["user_code"])
 
     def test_fake_peer_uid_is_rejected_before_json_or_subject(self):
         self.prove()
