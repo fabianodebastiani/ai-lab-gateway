@@ -594,7 +594,8 @@ def main() -> int:
         # sshd is locally provisioned with that identity.
         system_host = Path("/etc/ssh/ssh_host_ed25519_key.pub")
         actual_host = args.host_key
-        if actual_host is None and system_host.is_file() and not system_host.is_symlink():
+        if (actual_host is None and args.base_url.startswith("https://")
+                and system_host.is_file() and not system_host.is_symlink()):
             actual_host = system_host
         return run(url=args.base_url, device_id=device_id,
                    name=args.name, persistent=args.persistent,
