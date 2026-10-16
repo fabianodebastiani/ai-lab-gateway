@@ -157,3 +157,56 @@ def plan_generic_linux_enrollment(
         if entry["subject"] == c["operator_subject"]:
             entry["devices"][device_id] = list(SSH_ACTIONS)
     return offer, next_registry, next_policy
+
+
+def plan_generic_linux_activation(*, staged_candidate: dict,
+                                  registry: dict, policy: dict
+                                  ) -> tuple[dict, dict]:
+    """Plan registry/ACL *after* an external pinned-SSH proof succeeded.
+
+    Staged offer is immutable and signed by the validated device proof in the
+    trusted pairing store; this routine deliberately CANNOT claim SSH is
+    online or authorize its own root caller.
+    """
+    if not isinstance(staged_candidate, dict) or set(staged_candidate) != {
+        "request_id", "device_id", "device_name", "operator_subject",
+        "tunnel_public_key", "host_public_key", "persistent", "expires_at",
+        "offer"}:
+        raise PermissionError("invalid staged candidate snapshot")
+    candidate = {k: value for k, value in staged_candidate.items() if k != "offer"}
+    c = _candidate_identity(candidate)
+    offer = validate_offer(
+        staged_candidate["offer"], request_id=c["request_id"],
+        device_id=c["device_id"], persistent=c["persistent"],
+        tunnel_key=c["tunnel_public_key"], host_key=c["host_public_key"])
+    port = offer["reverse_listen_port"]
+    if not PORT_START <= port <= PORT_END:
+        raise PermissionError("staged reverse SSH port outside provisioner range")
+    devices = _trusted_registry(registry)
+    if (any(d["id"] == c["device_id"] or int(d["tunnel_port"]) == port for d in devices)):
+        raise PermissionError("duplicate device identity or assigned listener")
+    if (not isinstance(policy, dict) or set(policy) != {"users"}
+            or not isinstance(policy["users"], list)
+            or any(not isinstance(u, dict) or not isinstance(u.get("devices"), dict)
+                   for u in policy["users"])):
+        raise PermissionError("invalid authorization policy")
+    owners = [u for u in policy["users"]
+              if u.get("subject") == c["operator_subject"]]
+    if len(owners) != 1 or any(c["device_id"] in u["devices"]
+                                for u in policy["users"]):
+        raise PermissionError("unknown principal or pre-existing device grant")
+    record = {
+        "id": c["device_id"], "name": c["device_name"],
+        "ssh_user": SSH_USER, "tunnel_host": "127.0.0.1",
+        "tunnel_port": port,
+        "identity_file": f"{KEY_ROOT}/{c['device_id']}/identity",
+        "enabled": True,
+    }
+    Device.from_dict(record)
+    next_registry = copy.deepcopy(registry)
+    next_policy = copy.deepcopy(policy)
+    next_registry["devices"].append(record)
+    for user in next_policy["users"]:
+        if user["subject"] == c["operator_subject"]:
+            user["devices"][c["device_id"]] = list(SSH_ACTIONS)
+    return next_registry, next_policy
