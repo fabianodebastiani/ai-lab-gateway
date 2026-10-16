@@ -50,6 +50,16 @@ class OperatorProtocol:
                     operator_subject=message["subject"])}
             except (TypeError, ValueError, PermissionError, KeyError):
                 return {"ok": False, "error": "pairing_unavailable"}
+        if action == "confirm_single_code":
+            if set(message) != {"action", "subject", "request_id", "user_code"}:
+                return {"ok": False, "error": "invalid_request"}
+            try:
+                return {"ok": True, "request": self.store.confirm_with_pairing_code(
+                    request_id=message["request_id"],
+                    user_code=message["user_code"],
+                    operator_subject=message["subject"])}
+            except (TypeError, ValueError, PermissionError, KeyError):
+                return {"ok": False, "error": "pairing_unavailable"}
         return {"ok": False, "error": "unsupported"}
 
 class ThreadedUnix(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -149,3 +159,21 @@ def call_operator_confirm(*, path: Path, subject: str,
     return _operator_rpc(path=path, payload={
         "action": "confirm", "subject": subject,
         "request_id": request_id, "confirmation": confirmation})
+
+
+def call_operator_confirm_single_code(*, path: Path, subject: str,
+                                      request_id: str, user_code: str) -> dict:
+    """Redeem original device-displayed code under authenticated subject.
+
+    Does NOT grant SSH or sudo; use only after showing pending target
+    identity and collecting explicit operator instruction.
+    """
+    if not isinstance(subject, str) or not 1 <= len(subject) <= 256:
+        raise ValueError("verified operator subject required")
+    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        raise ValueError("invalid request ID")
+    if not isinstance(user_code, str) or not 1 <= len(user_code) <= 24:
+        raise ValueError("invalid device code")
+    return _operator_rpc(path=path, payload={
+        "action": "confirm_single_code", "subject": subject,
+        "request_id": request_id, "user_code": user_code})
