@@ -96,6 +96,23 @@ class RealRootCandidateTransactionTests(unittest.TestCase):
         self.assertEqual(events, ["prepared", "applied"])
         self.assertEqual(self.registry.read_bytes(), self.registry_backup)
 
+    def test_generic_port_11000_keeps_legacy_keys_intact(self):
+        result = self.apply(device_id="ai-lab-experiments-01-aabbccdd", port=11000)
+        self.assertEqual(result["port"], 11000)
+        self.assertEqual(result["device_id"], "ai-lab-experiments-01-aabbccdd")
+        self.assertTrue(self.auth.read_bytes().startswith(self.legacy_auth))
+        self.assertTrue(self.known.read_bytes().startswith(self.legacy_known))
+        self.assertIn(b'permitlisten="127.0.0.1:11000"', self.auth.read_bytes())
+        self.assertIn(b'[127.0.0.1]:11000', self.known.read_bytes())
+        self.assertEqual(self.registry.read_bytes(), self.registry_backup)
+
+    def test_out_of_pool_and_legacy_ports_are_denied(self):
+        for port in (22, 10001, 10002, 10999, 12000, True):
+            with self.subTest(port=port):
+                with self.assertRaises(PermissionError):
+                    self.apply(port=port)
+                self.unchanged()
+
     def test_approval_required_before_any_file_or_journal_change(self):
         with self.assertRaises(PermissionError):
             apply_candidate_root_transaction(
