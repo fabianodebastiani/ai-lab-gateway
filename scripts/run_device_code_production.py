@@ -18,6 +18,7 @@ import threading
 from ai_lab_gateway.device_code import DeviceCodeStore
 from ai_lab_gateway.device_code_http import run_device_code_server
 from ai_lab_gateway.device_code_operator import create_operator_socket
+from ai_lab_gateway.device_code_root_handoff import create_root_handoff
 
 STATE = Path("/var/lib/ai-lab-pairing/device-code")
 RUNTIME = Path("/run/ai-lab-device-code")
@@ -63,20 +64,30 @@ def main() -> None:
         raise PermissionError("existing operator socket requires independent recovery")
     store = DeviceCodeStore(STATE / "device-code.sqlite", hmac_key=_hmac_key())
     gw = pwd.getpwnam("ai-lab-gateway")
+    root_sock = RUNTIME / "root-handoff.sock"
+    if root_sock.exists() or root_sock.is_symlink():
+        raise PermissionError("existing privileged handoff requires independent recovery")
     with run_device_code_server(store, port=PORT) as http:
         with create_operator_socket(
                 SOCKET, store, allowed_gateway_uid=gw.pw_uid,
                 production_gateway_gid=gw.pw_gid) as operator:
-            thread = threading.Thread(target=operator.serve_forever, daemon=True)
-            thread.start()
-            try:
-                http.serve_forever(poll_interval=0.2)
-            except KeyboardInterrupt:
-                pass
-            finally:
-                operator.shutdown()
-                thread.join(timeout=3)
-                SOCKET.unlink(missing_ok=True)
+            with create_root_handoff(root_sock, store, root_uid=0) as root_handoff:
+                thread = threading.Thread(target=operator.serve_forever, daemon=True)
+                root_thread = threading.Thread(
+                    target=root_handoff.serve_forever, daemon=True)
+                thread.start()
+                root_thread.start()
+                try:
+                    http.serve_forever(poll_interval=0.2)
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    operator.shutdown()
+                    root_handoff.shutdown()
+                    thread.join(timeout=3)
+                    root_thread.join(timeout=3)
+                    SOCKET.unlink(missing_ok=True)
+                    root_sock.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
