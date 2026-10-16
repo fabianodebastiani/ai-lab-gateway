@@ -48,6 +48,7 @@ def _root_directory(path: Path, *, group: int = 0, mode: int = 0o700):
     if not path.exists() and not path.is_symlink():
         path.mkdir(mode=mode)
         os.chown(path, 0, group)
+        os.chmod(path, mode)
     info = path.lstat()
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
             or info.st_gid != group or stat.S_IMODE(info.st_mode) != mode):
@@ -108,6 +109,7 @@ def _create_management_identity(device_id: str, gateway_uid: int, gateway_gid: i
         raise PermissionError("management key already staged; no silent rotation")
     dest.mkdir(mode=0o750)
     os.chown(dest, 0, gateway_gid)
+    os.chmod(dest, 0o750)
     private = dest / "identity"
     subprocess.run(
         ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519",
