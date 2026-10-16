@@ -549,3 +549,39 @@ and a verified SHA256 hash, downloaded over TLS, and never runs as root.
 This does **not** equal a separately signed release distribution;
 official signature management and on-server `/install.sh` deployment
 remain future work.
+
+
+### ADR-029 product UX clarification — 2026-10-15 (supersedes two-code prototype UX)
+
+**Canonical end-user journey: TV-style pairing, one human-visible pairing code.**
+The operator is **already authenticated in ChatGPT to the Gateway MCP via Auth0**.
+The user says "Quero conectar um novo Linux"; ChatGPT offers one stable,
+public HTTPS installer command with no user token embedded. The user runs it
+on the previously unknown Linux. The client verifies the installer, generates
+local device SSH credentials, initiates outbound HTTPS, and displays **one
+short human-typeable pairing code**. The user provides that code in the
+existing ChatGPT conversation. Auth0-authenticated MCP resolves it, displays
+the pending device and requests approval for **that exact device**. The
+Gateway records verifiable human consent, provisions isolated SSH trust, and
+the Linux automatically connects outbound via reverse SSH. The Gateway
+validates the connection and makes the device available to MCP, starting
+**Restricted**. No manually pasted SSH keys, manual Oracle port configuration,
+second website login, TOTP for normal enrollment, or second terminal code.
+
+The earlier **two independently typed codes** are an experimental security
+prototype, **not** the agreed production UX and not a required user step.
+Do not make the user type two codes simply because the experimental
+implementation currently supports them.
+
+**Non-negotiable security distinction:** a model-generated button, conversation
+text, or MCP tool call alone is not authenticated human approval. Use a
+verified host-native user-confirmation/step-up boundary if supported; if not,
+identify that missing capability and preserve a secure separately authenticated
+fallback until equivalent consent evidence is implemented. This internal
+requirement must not be disguised as a completed one-code ChatGPT integration.
+
+Build the thinnest sufficient secure server-side orchestration; do not add
+new user-facing steps. Pairing grants identity and nonroot access only.
+The per-device Restricted / Partial / Unrestricted privilege-selection flow
+remains a later, separate action under ADR-027. Legacy WSL 10002 and Raspberry
+10001 stay operational until the v2 candidate passes real end-to-end tests.

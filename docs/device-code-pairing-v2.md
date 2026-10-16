@@ -4,6 +4,32 @@
 **Implementation status:** design and non-production prototype work; NOT a
 statement that the feature is available on the live Oracle gateway.
 
+## Final user experience — one code, existing ChatGPT login
+
+**Operator clarification, 2026-10-15; canonical product UX.** The intended
+interaction is analogous to pairing a TV. An already Auth0-authenticated
+ChatGPT/MCP user asks to add a Linux device; ChatGPT responds with the
+same public HTTPS install command for any compatible Linux. The target
+performs its own key generation and preliminary HTTPS registration,
+then shows **one** short code. The user types that code **once** in
+ChatGPT, sees the exact pending target, and approves it there through
+a genuinely authenticated human-consent mechanism. The Gateway then
+provisions SSH credentials and the target establishes a reverse SSH
+tunnel automatically. Its first access profile is **Restricted**.
+
+The earlier two-code terminal UX and browser approver are staging
+experiments/fallbacks; they **do not** add user-facing steps to the
+approved one-code product design. Independent verification of user
+consent is still required: do not equate a model-authored approval call
+with a confirmed human interaction. If a supported ChatGPT-native
+confirmation primitive is unavailable, report the gap and use a
+secure fallback rather than pretending the UX is already delivered.
+
+**Current reality:** isolated code and tests exist; public device-code
+HTTP endpoint, authenticated MCP confirmation, production automatic
+SSH provisioning/activation, and genuine no-prior-SSH Linux acceptance
+are unfinished. The old working connections remain unchanged.
+
 ## User experience — two different computers
 
 The ChatGPT user may be on a phone, a different laptop, or in another
