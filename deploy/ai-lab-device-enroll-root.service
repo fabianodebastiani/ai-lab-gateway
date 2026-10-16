@@ -13,6 +13,8 @@ ExecStart=/usr/bin/python3 /usr/local/libexec/ai-lab-device-enroll-root
 TimeoutStartSec=30
 UMask=0077
 NoNewPrivileges=true
+# Root worker verifies SSH as gateway UID via setpriv --reuid; blocking
+# setuid/setgid syscalls breaks that necessary *downward* UID transition.
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
@@ -21,7 +23,7 @@ ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 ProtectClock=true
-RestrictSUIDSGID=true
+RestrictSUIDSGID=false
 LockPersonality=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET
