@@ -576,12 +576,13 @@ class DeviceCodeStore:
         snapshot = self.staged_candidate_snapshot(request_id=request_id, now=now)
         with closing(self._db()) as db:
             row = db.execute(
-                "SELECT display_name,operator_subject FROM sessions "
+                "SELECT display_name,operator_subject,expires_at FROM sessions "
                 "WHERE request_id=? AND state='approved'", (request_id,)).fetchone()
         if row is None or not row["operator_subject"]:
             raise PermissionError("staged operator unavailable")
         return {**snapshot, "device_name": row["display_name"],
-                "operator_subject": row["operator_subject"]}
+                "operator_subject": row["operator_subject"],
+                "expires_at": int(row["expires_at"])}
 
     def staged_candidate_snapshot(self, *, request_id: str,
                                   now: int | None = None) -> dict:
