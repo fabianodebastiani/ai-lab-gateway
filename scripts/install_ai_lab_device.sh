@@ -1,12 +1,12 @@
 #!/bin/sh
 # AI Lab Gateway -- Linux device-code enrollment bootstrap (lab / pre-release).
 # Source is pinned by Git commit AND SHA-256; only the nonroot Python CLI runs.
+# Device-code HTTPS is online; SSH activation is NOT automated yet.
 # This does not install, enable or authorize systemd, sshd, sudoers or SSH.
-# Production Gateway endpoint /pairing/device/start is NOT deployed yet.
 set -eu
 
-RELEASE_COMMIT="536f5e1ce5fa885d9aa1d757182a01c10d751ae5"
-CLIENT_SHA256="c25b3ad332c439e49aa9946cd0fd1330c68b979ed34237a6665e88627f8594d3"
+RELEASE_COMMIT="b3b5f2584381c32700fcb22080913680e44a7290"
+CLIENT_SHA256="e4a9a0f3b1fb8bc66669d411d8f1f75711fbd5f813cdbc0f96546397c90be0d2"
 CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${RELEASE_COMMIT}/scripts/device_code_pair_linux.py"
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -60,6 +60,6 @@ sys.exit(0 if digest == sys.argv[2] else 1)
 fi
 printf '%s\n' "AI Lab: hash SHA-256 validado. Executando sem privilégios administrativos."
 
-# Production HTTPS will be the default only once its new device API is live.
-# The CLI currently requires --base-url; lab may use http://127.0.0.1:PORT.
-python3 "$client" "$@"
+# A single shell command is sufficient for preliminary HTTPS registration.
+# Extra CLI arguments can override --base-url for isolated loopback tests.
+python3 "$client" --base-url https://gateway.debasti.com "$@"

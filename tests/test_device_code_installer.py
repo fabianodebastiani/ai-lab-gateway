@@ -42,7 +42,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn("hash SHA-256 validado",result.stdout)
         self.assertIn("Código:",result.stdout)
-        self.assertIn("Confirmação:",result.stdout)
+        self.assertNotIn("Confirmação:",result.stdout)
         self.assertNotIn("device_secret",result.stdout)
         self.assertTrue(re.search(r"Código: [A-Z2-9]{4}-[A-Z2-9]{4}",result.stdout))
         local=home/".ssh"/"ai-lab-device-code"

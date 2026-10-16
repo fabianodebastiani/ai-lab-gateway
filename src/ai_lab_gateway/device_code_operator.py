@@ -50,6 +50,16 @@ class OperatorProtocol:
                     operator_subject=message["subject"])}
             except (TypeError, ValueError, PermissionError, KeyError):
                 return {"ok": False, "error": "pairing_unavailable"}
+        if action == "confirm_single_code":
+            if set(message) != {"action", "subject", "request_id", "user_code"}:
+                return {"ok": False, "error": "invalid_request"}
+            try:
+                return {"ok": True, "request": self.store.confirm_with_pairing_code(
+                    request_id=message["request_id"],
+                    user_code=message["user_code"],
+                    operator_subject=message["subject"])}
+            except (TypeError, ValueError, PermissionError, KeyError):
+                return {"ok": False, "error": "pairing_unavailable"}
         return {"ok": False, "error": "unsupported"}
 
 class ThreadedUnix(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -87,20 +97,37 @@ def operator_handler(protocol: OperatorProtocol, *, allowed_gateway_uid: int):
 
 
 def create_operator_socket(path: Path, store: DeviceCodeStore, *,
-                           allowed_gateway_uid: int) -> ThreadedUnix:
-    """Use only in protected standalone staging. Production: systemd socket."""
+                           allowed_gateway_uid: int,
+                           production_gateway_gid: int | None = None) -> ThreadedUnix:
+    """Create a private lab socket or group-restricted production IPC.
+
+    In production only the real Gateway group can CONNECT to the socket.
+    Kernel SO_PEERCRED checks the exact Gateway UID independently.
+    """
     if path.exists() or path.is_symlink():
         raise PermissionError("refusing existing operator socket")
     folder = path.parent
     if not folder.is_dir() or folder.is_symlink():
         raise PermissionError("a private runtime directory is required")
     mode = folder.stat()
-    if (mode.st_uid != os.geteuid() or stat.S_IMODE(mode.st_mode) != 0o700):
-        raise PermissionError("runtime directory must be mode 0700 and owner-only")
+    expected = 0o700 if production_gateway_gid is None else 0o711
+    if (mode.st_uid != os.geteuid() or stat.S_IMODE(mode.st_mode) != expected):
+        raise PermissionError("runtime directory ownership or mode mismatch")
+    if production_gateway_gid is not None and (
+            type(production_gateway_gid) is not int
+            or production_gateway_gid not in os.getgroups()):
+        raise PermissionError("production gateway group not available")
     srv = ThreadedUnix(str(path), operator_handler(
         OperatorProtocol(store), allowed_gateway_uid=allowed_gateway_uid))
-    os.chmod(path, 0o600)
-    return srv
+    try:
+        if production_gateway_gid is not None:
+            os.chown(path, -1, production_gateway_gid)
+        os.chmod(path, 0o600 if production_gateway_gid is None else 0o660)
+        return srv
+    except BaseException:
+        srv.server_close()
+        path.unlink(missing_ok=True)
+        raise
 
 
 def _operator_rpc(*, path: Path, payload: dict) -> dict:
@@ -149,3 +176,21 @@ def call_operator_confirm(*, path: Path, subject: str,
     return _operator_rpc(path=path, payload={
         "action": "confirm", "subject": subject,
         "request_id": request_id, "confirmation": confirmation})
+
+
+def call_operator_confirm_single_code(*, path: Path, subject: str,
+                                      request_id: str, user_code: str) -> dict:
+    """Redeem original device-displayed code under authenticated subject.
+
+    Does NOT grant SSH or sudo; use only after showing pending target
+    identity and collecting explicit operator instruction.
+    """
+    if not isinstance(subject, str) or not 1 <= len(subject) <= 256:
+        raise ValueError("verified operator subject required")
+    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        raise ValueError("invalid request ID")
+    if not isinstance(user_code, str) or not 1 <= len(user_code) <= 24:
+        raise ValueError("invalid device code")
+    return _operator_rpc(path=path, payload={
+        "action": "confirm_single_code", "subject": subject,
+        "request_id": request_id, "user_code": user_code})

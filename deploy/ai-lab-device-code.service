@@ -1,0 +1,41 @@
+[Unit]
+Description=AI Lab Gateway device-initiated code enrollment (no root grants)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ai-lab-pairing
+Group=ai-lab-pairing
+SupplementaryGroups=ai-lab-gateway
+Environment=PYTHONPATH=/opt/ai-lab-gateway/src
+ExecStart=/usr/bin/python3 /usr/local/libexec/ai-lab-device-code
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/
+StateDirectory=ai-lab-pairing
+StateDirectoryMode=0700
+RuntimeDirectory=ai-lab-device-code
+RuntimeDirectoryMode=0711
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/ai-lab-pairing /run/ai-lab-device-code
+InaccessiblePaths=/etc/ai-lab-gateway /etc/ai-lab-approval /var/lib/ai-lab-gateway /var/lib/ai-lab-approval /var/lib/ai-lab-privilege-broker
+
+[Install]
+WantedBy=multi-user.target
