@@ -8,6 +8,12 @@ set -eu
 RELEASE_COMMIT="909a66a7fa3654b9b7bf707f8c44a5f5ec39dcba"
 CLIENT_SHA256="8c258ae6f23dc3bd00a9809443acfea9f1edf0861cf1b82ee3a01af8f0e7645b"
 CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${RELEASE_COMMIT}/scripts/device_code_pair_linux.py"
+# Fixed, independently checksum-verified *local Linux* preparation helper.
+# This helper sets up an ordinary, no-sudo ai-gateway account on fresh Ubuntu.
+LOCAL_SETUP_COMMIT="da6d0a5395cc05826eb5d97d2c4da6911ca167a7"
+LOCAL_SETUP_SHA256="bfa3729fcd69192847b86b91b463a0e5c0422c91bed15663b6dd3a86d93ed4b6"
+LOCAL_SETUP_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${LOCAL_SETUP_COMMIT}/scripts/ai_lab_prepare_linux_target.py"
+
 
 if [ "$(uname -s)" != "Linux" ]; then
     printf '%s\n' "AI Lab: este instalador requer Linux." >&2
@@ -68,7 +74,54 @@ gateway_pin="$directory/gateway-ssh-ed25519.pub"
 printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIArkQEjGi6HfiJlMeKv8yv3xf6XripB4npdSSnYWFGjA' > "$gateway_pin"
 chmod 600 "$gateway_pin"
 
-# On a Linux with sshd already present the client uses the REAL sshd key.
-# A fresh device without sshd must complete its local OpenSSH installation
-# before it can be activated; the enrollment request alone never grants root.
-python3 "$client" --base-url https://gateway.debasti.com --trusted-gateway-host-key "$gateway_pin" "$@"
+# Every enrolled device must expose a non-sudo management account.
+# A human runs THIS command locally, and the local OS sudo approval is
+# required exactly once for initial OpenSSH/account preparation.
+# Do NOT request this during --no-wait lab tests or an explicit loopback lab.
+need_local_setup=yes
+if [ "$(id -un)" = "ai-gateway" ]; then
+    need_local_setup=no
+else
+    for arg do
+        case "$arg" in
+            --no-wait|--base-url) need_local_setup=no ;;
+        esac
+    done
+fi
+
+if [ "$need_local_setup" = no ]; then
+    python3 "$client" --base-url https://gateway.debasti.com --trusted-gateway-host-key "$gateway_pin" "$@"
+else
+    if ! command -v sudo >/dev/null 2>&1; then
+        printf '%s\n' "AI Lab: a configuração inicial requer sudo local no Linux." >&2
+        exit 5
+    fi
+    helper="$directory/ai_lab_prepare_linux_target.py"
+    printf '%s\n' "AI Lab: preparando usuário local Restrito; o Linux pode pedir sua senha sudo."
+    curl --fail --location --silent --show-error \
+         --proto '=https' --proto-redir '=https' --tlsv1.2 \
+         --max-time 30 "$LOCAL_SETUP_URL" --output "$helper"
+    if ! python3 -c '
+import hashlib,sys
+with open(sys.argv[1],"rb") as file:
+    digest=hashlib.sha256(file.read()).hexdigest()
+sys.exit(0 if digest == sys.argv[2] else 1)
+' "$helper" "$LOCAL_SETUP_SHA256"; then
+        printf '%s\n' "AI Lab: hash de preparação local incorreto." >&2
+        exit 6
+    fi
+    sudo -- /usr/bin/python3 "$helper"
+    home="$(getent passwd ai-gateway | awk -F: '{print $6}')"
+    if [ "$home" != "/home/ai-gateway" ]; then
+        printf '%s\n' "AI Lab: diretório inesperado para usuário Restrito." >&2
+        exit 7
+    fi
+    target_id="$(id -u ai-gateway)"
+    sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.cache/ai-lab-gateway"
+    sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$client" "$home/.cache/ai-lab-gateway/device_code_pair_linux.py"
+    sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$gateway_pin" "$home/.cache/ai-lab-gateway/gateway_host_key.pub"
+    sudo -u ai-gateway -H -- env "XDG_RUNTIME_DIR=/run/user/$target_id" \
+        /usr/bin/python3 "$home/.cache/ai-lab-gateway/device_code_pair_linux.py" \
+        --base-url https://gateway.debasti.com \
+        --trusted-gateway-host-key "$home/.cache/ai-lab-gateway/gateway_host_key.pub" "$@"
+fi
