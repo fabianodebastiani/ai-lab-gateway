@@ -75,7 +75,7 @@ class GenericLinuxPlanTests(unittest.TestCase):
                          policy["users"][1]["devices"])
         for bad in (
             dict(candidate, access_mode="unrestricted"),
-            dict(candidate, operator_subject="auth0|other"),
+            dict(candidate, operator_subject="auth0|not-in-protected-policy"),
             dict(candidate, request_id="wrong"),
             dict(candidate, offer=dict(offer, reverse_listen_port=10002)),
             dict(candidate, offer=dict(offer, management_user="root")),
