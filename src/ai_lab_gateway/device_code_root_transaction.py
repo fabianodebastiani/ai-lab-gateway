@@ -256,16 +256,19 @@ def recover_candidate_root_transaction(paths: RootSSHPaths) -> bool:
         _end_lock(lock)
 
 
-def _validated_fragments(tunnel_key: str, host_key: str) -> tuple[bytes, bytes]:
+def _validated_fragments(tunnel_key: str, host_key: str, *,
+                         port: int = 10003) -> tuple[bytes, bytes]:
+    if type(port) is not int or not 11000 <= port <= 11999 and port != 10003:
+        raise PermissionError("reverse SSH port outside managed pool")
     tunnel = _validate_public_key(tunnel_key)
     host = _validate_public_key(host_key)
     if tunnel == host:
         raise PermissionError("host and tunnel SSH key cannot be equal")
     auth = (
-        'permitlisten="127.0.0.1:10003",no-agent-forwarding,'
+        f'permitlisten="127.0.0.1:{port}",no-agent-forwarding,'
         'no-X11-forwarding,no-pty,no-user-rc ' + tunnel +
         " ai-lab-wsl-v2\n").encode("ascii")
-    known = ("[127.0.0.1]:10003 " + host + "\n").encode("ascii")
+    known = (f"[127.0.0.1]:{port} " + host + "\n").encode("ascii")
     return auth, known
 
 
@@ -274,7 +277,8 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
                                      host_key: str, approval_check,
                                      test_interrupt_after: int = 0,
                                      verified_existing_host_pin: bool = False,
-                                     device_id: str = "windows-wsl") -> dict:
+                                     device_id: str = "windows-wsl",
+                                     port: int = 10003) -> dict:
     """Apply only one verified WSL candidate; no registry or service changes.
 
     The caller MUST obtain keys from the authenticated approval handoff and
@@ -291,7 +295,7 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
         raise PermissionError("invalid existing host pin mode")
     if type(test_interrupt_after) is not int or test_interrupt_after not in (0, 1, 2):
         raise ValueError("invalid test mode")
-    fragments = _validated_fragments(tunnel_key, host_key)
+    fragments = _validated_fragments(tunnel_key, host_key, port=port)
     root = _root_journal_dir(paths)
     fd = _lock(root)
     try:
@@ -304,16 +308,16 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
             raise PermissionError("fresh independent human approval unavailable")
         destinations = _destinations(paths)
         before = tuple(_read_exact(p, uid, gid) for p, uid, gid in destinations)
-        if b'permitlisten="127.0.0.1:10003"' in before[0]:
+        if f'permitlisten="127.0.0.1:{port}"'.encode() in before[0]:
             raise PermissionError("candidate tunnel credential already authorized")
         pinned = []
         for line in before[1].splitlines():
             parts = line.split()
-            if parts and parts[0] == b"[127.0.0.1]:10003":
+            if parts and parts[0] == f"[127.0.0.1]:{port}".encode():
                 pinned.append(line.strip())
-            elif parts and (b"[127.0.0.1]:10003" in parts[0].split(b",")
+            elif parts and (f"[127.0.0.1]:{port}".encode() in parts[0].split(b",")
                              or (parts[0].startswith(b"@") and
-                                 b"[127.0.0.1]:10003" in line)):
+                                 f"[127.0.0.1]:{port}".encode() in line)):
                 raise PermissionError("ambiguous candidate host pin")
         if pinned:
             if (not verified_existing_host_pin or len(pinned) != 1
@@ -354,7 +358,7 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
         _record(root, request_id, "applied")
         journal.unlink()
         _sync_dir(root)
-        return {"status": "candidate_ssh_staged", "port": 10003,
+        return {"status": "candidate_ssh_staged", "port": port,
                 "device_id": device_id, "registry_changed": False,
                 "sudo_granted": False}
     finally:
