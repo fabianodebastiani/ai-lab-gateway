@@ -92,3 +92,40 @@ its supply-chain provenance, run the audit **read-only in a trusted
 human-administered root console**. Review the resulting metadata before
 modifying production constants or beginning SSH candidate provisioning.
 Keep WSL 10002 credentials and Raspberry 10001 intact.
+
+
+## Root-console operator observations — 2026-10-15
+
+The authorized operator executed **read-only** commands on the real Oracle
+as Unix account `ubuntu`, confirmed `sudo -n whoami` returns `root`,
+then ran `sudo -n sshd -T -C user=tunnel,host=gateway.debasti.com,addr=127.0.0.1`
+and root `stat` on fixed candidate paths (output supplied in the project
+conversation; no SSH key bytes disclosed):
+
+```text
+maxsessions 0
+passwordauthentication no
+gatewayports no
+allowtcpforwarding remote
+authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2
+authenticationmethods publickey
+/var/lib/ai-lab-tunnel/.ssh | directory | tunnel:tunnel | 700
+/var/lib/ai-lab-tunnel/.ssh/authorized_keys | regular file | tunnel:tunnel | 600
+/var/lib/ai-lab-tunnel/.ssh/authorized_keys2 | absent
+/var/lib/ai-lab-gateway/.ssh | directory | ai-lab-gateway:ai-lab-gateway | 700
+/var/lib/ai-lab-gateway/.ssh/known_hosts | regular file | ai-lab-gateway:ai-lab-gateway | 600
+/etc/ai-lab-gateway/devices.json | regular file | root:ai-lab-gateway | 640
+```
+
+This *confirms existence, exact immediate ownership and basic permissions*
+of all three production input paths configured in
+`device_code_root_environment.py`, and confirms that the actual OpenSSH
+server searches the `tunnel` account's `authorized_keys` as expected.
+The missing optional `authorized_keys2` is not an error.
+
+**Still to verify separately before staging:** contents/semantics of the
+protected device registry (without revealing secrets), expected target
+host entry in actual Gateway known_hosts, that the Gateway service really
+uses that OpenSSH client host-key source, all ancestor trust, candidate
+keys and approval handoff. No root-owned candidate files/services were
+installed; no privileged transaction was invoked on Oracle.
