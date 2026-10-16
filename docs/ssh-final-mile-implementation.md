@@ -144,3 +144,40 @@ device-code service and Caddy all active. Existing Raspberry 10001 and
 WSL 10002 both online. Candidate port 10003 **not listening**.
 Root \`sudo -n\` for \`ai-maintenance\` correctly denied. No staged root
 code in this section has been installed on production.
+
+
+## Additional checkpoint — 2026-10-16 02:46 UTC
+
+Implemented and validated **without modifying production**:
+
+- `device_code_registration_plan.py`: pure immutable planning of
+  `devices.json` and `authorization.json` for the specific WSL pilot only.
+  Enforces fixed loopback port 10003, predesignated nonroot `ai-gateway`
+  login and root-controlled private key path, refuses duplicate entries,
+  changed existing WSL assignment, elevated modes, arbitrary request
+  fields, unknown or duplicated Auth0 principals. Grants ordinary MCP
+  actions only to the **verified approving principal**.
+  No file writing or privileged operation is implemented here.
+- `device_code_ssh_acceptance.py`: separate **read-only** SSH handshake
+  to 127.0.0.1:10003 using the Gateway-specific management key and
+  independently pinned known_hosts; runs only the fixed commands
+  `id -un` and `hostname`; requires exact nonroot WSL identity.
+  Does not enable or record a device by itself.
+- The latest GitHub CI run
+  https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38842027333
+  passed 175 standard test cases (18 reserved/skipped in standard runner)
+  and the separate root transaction job passed.
+
+**Important:** These components do not replace the privileged finalizer.
+The previous publication attempt for code that performs actual protected
+registry/authorization file modifications was blocked by a tool security
+control. Do not submit the same protected operation by another route.
+Final integration, root-controlled installation and true SSH acceptance
+have not happened.
+
+**Next real second-machine goal:** `ai-lab-experiments-01`, a separate
+Ubuntu Oracle VM. The current draft includes **only the fixed WSL pilot**,
+not production-generic Linux onboarding. The new VM may have a different
+Linux account (e.g. ubuntu), hostname, keypair and allocated port. Those
+must be authenticated and bound to each device, not copied or inferred
+from WSL settings. Never claim the Oracle second VM can already connect.
