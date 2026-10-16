@@ -560,6 +560,29 @@ class DeviceCodeStore:
         snapshot["persistent"] = bool(row["persistent"])
         return snapshot
 
+    def list_staged_request_ids(self, *, now: int | None = None) -> list[str]:
+        """Approved, offer-staged sessions for root-only SSH acceptance."""
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db:
+            rows = db.execute(
+                "SELECT request_id FROM sessions "
+                "WHERE state='approved' AND provision_state='candidate_staged' "
+                "AND expires_at>? AND operator_subject IS NOT NULL "
+                "ORDER BY reviewed_at ASC LIMIT 20", (moment,)).fetchall()
+        return [x["request_id"] for x in rows]
+
+    def staged_root_snapshot(self, *, request_id: str,
+                             now: int | None = None) -> dict:
+        snapshot = self.staged_candidate_snapshot(request_id=request_id, now=now)
+        with closing(self._db()) as db:
+            row = db.execute(
+                "SELECT display_name,operator_subject FROM sessions "
+                "WHERE request_id=? AND state='approved'", (request_id,)).fetchone()
+        if row is None or not row["operator_subject"]:
+            raise PermissionError("staged operator unavailable")
+        return {**snapshot, "device_name": row["display_name"],
+                "operator_subject": row["operator_subject"]}
+
     def staged_candidate_snapshot(self, *, request_id: str,
                                   now: int | None = None) -> dict:
         """Internal approval recheck for an already staged public candidate.
