@@ -19,7 +19,6 @@ import socket
 import stat
 import subprocess
 
-from .device_code_root_preflight import preflight_wsl_candidate
 from .enrollment import _validate_public_key
 from .device_code_root_identity import BASE as ROOT_KEY_BASE, PILOT as ROOT_KEY_PILOT, verify_wsl_management_identity
 
@@ -196,6 +195,8 @@ def inspect_candidate_environment(candidate: dict, *, files: dict,
         registry = json.loads(registry_raw)
     except (UnicodeError, ValueError) as exc:
         raise PermissionError("unreadable protected device registry") from exc
+    # Legacy WSL-only checks are optional; generic Linux staging never imports them.
+    from .device_code_root_preflight import preflight_wsl_candidate
     return preflight_wsl_candidate(
         candidate,
         trusted_gateway_host_key=gateway_public,
