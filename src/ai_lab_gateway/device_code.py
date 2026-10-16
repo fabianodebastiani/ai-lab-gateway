@@ -501,6 +501,30 @@ class DeviceCodeStore:
             db.commit()
         return {"request_id":request_id,"status":"denied"}
 
+    def list_approved_request_ids(self, *, now: int | None = None) -> list[str]:
+        """Root-only IPC selects pending work, never expose via HTTP/MCP."""
+        moment = int(time.time()) if now is None else now
+        with closing(self._db()) as db:
+            rows = db.execute(
+                "SELECT request_id FROM sessions "
+                "WHERE state='approved' AND provision_state='not_provisioned' "
+                "AND expires_at>? AND operator_subject IS NOT NULL "
+                "ORDER BY reviewed_at ASC LIMIT 20", (moment,)).fetchall()
+        return [x["request_id"] for x in rows]
+
+    def approved_root_snapshot(self, *, request_id: str,
+                               now: int | None = None) -> dict:
+        """Includes Auth0 owner ONLY inside UID-0 handoff, never MCP."""
+        result = self.approved_candidate_snapshot(request_id=request_id, now=now)
+        with closing(self._db()) as db:
+            row = db.execute(
+                "SELECT display_name,operator_subject FROM sessions "
+                "WHERE request_id=? AND state='approved'", (request_id,)).fetchone()
+        if row is None or not row["operator_subject"]:
+            raise PermissionError("approved owner unavailable")
+        return {**result, "device_name": row["display_name"],
+                "operator_subject": row["operator_subject"]}
+
     def approved_candidate_snapshot(self, *, request_id: str,
                                     now: int | None = None) -> dict:
         """Internal read for a *separately authorized* provisioner only.
