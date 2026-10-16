@@ -13,6 +13,8 @@ on:
       - "scripts/prepare_device_code_root_identity.py"
       - "scripts/audit_device_code_production.py"
       - "scripts/run_device_code_lab.py"
+      - "scripts/run_device_code_root_worker.py"
+      - "scripts/ai_lab_prepare_linux_target.py"
       - "scripts/install_ai_lab_device.sh"
       - "tests/test_device_code*.py"
       - ".github/workflows/device-code-lab.yml"
@@ -63,3 +65,8 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/src
         run: sudo -n env PYTHONPATH="$PYTHONPATH" "$(command -v python)" -m unittest discover -s tests -p 'test_device_code_root_identity.py' -v
+
+      - name: Test root-only Auth0-bound registry transaction and rollback
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: sudo -n env PYTHONPATH="$PYTHONPATH" "$(command -v python)" -m unittest discover -s tests -p 'test_device_code_root_generic_finalize.py' -v
