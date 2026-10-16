@@ -397,7 +397,6 @@ def run(*, url: str, device_id: str, name: str, persistent: bool,
     print("AI Lab Gateway — Vincular dispositivo", flush=True)
     print("Linux:", name, flush=True)
     print("Código:", started["user_code"], flush=True)
-    print("Confirmação:", started["confirmation"], flush=True)
     print("No ChatGPT: Conectar dispositivo " + started["user_code"], flush=True)
     print("Aguardando autorização... (acesso inicial Restrito)", flush=True)
     if not wait:
