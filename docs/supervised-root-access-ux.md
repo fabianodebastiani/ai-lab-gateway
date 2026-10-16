@@ -108,3 +108,24 @@ has a smaller operation allowlist than the repository.
 
 The Oracle bootstrap expiry remains separately controlled by its
 systemd timer. Developing this UX does not extend that expiry.
+
+
+## Parallel read-only Oracle validation during active bootstrap
+
+At 2026-10-16 00:48 UTC the Gateway, broker, approver and Caddy were
+active; Raspberry loopback 10001 and WSL loopback 10002 both listened,
+and both devices answered \`device_status\`. No listener on 10003.
+
+The existing protected \`known_hosts\` unexpectedly already contains
+a fingerprint at loopback 10003. Read-only root-side verification showed
+the 10003 Ed25519 fingerprint equals the verified WSL Ed25519 fingerprint
+at 10002, \`SHA256:hh1guyo4yOa81Qj0zrf+XZlNpwaMlH0BfDAdo0SGwCw\`.
+The 10002 host also has additional known host algorithms pinned.
+This is a **known-hosts entry only**, NOT evidence an SSH listener or
+candidate has been activated. The new root candidate preflight must
+handle this pre-existing entry deliberately, not overwrite it or
+incorrectly assume port 10003 is unused in all respects.
+
+The supervised sudo window remains temporary and tied to the existing
+fixed deadline. Neither this branch nor the new read-only stat
+operation changed production services, SSH host trust or sudoers.
