@@ -80,3 +80,67 @@ No broad sudo was re-granted, no Oracle SSH authorized_keys, known_hosts,
 policy, registry or root service was altered in this implementation turn.
 **Do not merge/deploy this SSH autoactivation candidate as a completed
 product until the next root-side proof and end-to-end tests pass.**
+
+
+## Checkpoint — Oracle root bridge prepared, NOT installed (2026-10-16)
+
+**Automated evidence:** GitHub Actions
+https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38840900889:
+167 standard-test cases executed, 18 deliberately skipped in the
+nonroot job; independent ephemeral-root transaction job succeeded.
+This is unit/integration-lab evidence, not live onboarding success.
+
+Implemented on this feature branch:
+
+- \`device_code_root_handoff.py\` and the production pairing-service runner
+  extension: a **second**, UID-0-only Unix socket with fixed
+  \`list_approved\`, \`inspect_approved\`, \`publish_offer\`,
+  \`list_staged\`, \`inspect_staged\` and \`mark_active\` message schemas.
+  The socket uses mode \`0600\`, never exposes a shell, sudo, user-supplied
+  file path or private key. The existing authenticated MCP/HTTP sockets
+  cannot call it; no connection to the public listener.
+- \`device_code.py\`: finite-state, expiring approved/staged snapshots,
+  verified Auth0 principal included **only for root-internal policy mapping**.
+- \`device_code_wsl_root_plan.py\`: fixed-port \`10003\` staging limited
+  to the actual \`LAPTOP-5RJJ0KBM\` pilot and its exact, independently
+  trusted SSH daemon identity at the old \`10002\`; rejects unexpected
+  Linux identities and changed public keys; accepts one existing
+  **identical** candidate host pin (no rotation or duplication).
+- \`device_code_root_transaction.py\`: existing preverified 10003 pin is
+  preserved, while the authorized_keys update remains protected by the
+  prior root-only rollback journal. Root journal storage relocated under
+  root-controlled \`/var/lib/ai-lab-root-provision/ssh-10003\` instead of
+  a Gateway-service-writable ancestor.
+- \`device_code_root_stage_pilot.py\`: **not yet installed, not a daemon**.
+  Fixed trusted-root file verification, actual tunnel account sshd policy,
+  dedicated Gateway management key, approved-candidate recheck under lock,
+  atomic candidate staging, then public offer publication over the root
+  handoff; does not grant sudo, change the device registry or activate SSH.
+
+**Outstanding work and constraints:**
+
+1. The root-only handoff is NOT deployed to Oracle (current pairing runner
+   still exposes only the operator socket). Nor is there a root worker
+   service, privilege-approved installation or production root preflight
+   for this branch. Current \`ai-maintenance\` cannot sudo; prior
+   60-minute window expired normally.
+2. The finalizer must perform real SSH identity verification on 10003,
+   atomically add the new device into the protected registry and map
+   the authenticated principal into the authorization policy,
+   and only then mark the pairing active. An attempted publication of
+   that finalizer was **blocked by tool security controls**; no alternative
+   writing path was used. Treat this as unfinished, not as a skipped
+   technical step.
+3. A fresh pairing code is needed after the root worker is installed,
+   because the prior \`--no-wait\` client exited and the 10-minute
+   approval window expired. Do not present the old approved record
+   as reusable for root provisioning.
+4. The product goal remains only **one command + one code in ChatGPT +
+   verified nonroot SSH**, with no extra manual user steps or sudo grant.
+   Internal hardened plumbing does not authorize changing that UX.
+
+**Live recheck 2026-10-16 02:34 UTC:** Gateway, legacy pairing, new HTTPS
+device-code service and Caddy all active. Existing Raspberry 10001 and
+WSL 10002 both online. Candidate port 10003 **not listening**.
+Root \`sudo -n\` for \`ai-maintenance\` correctly denied. No staged root
+code in this section has been installed on production.
