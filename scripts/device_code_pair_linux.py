@@ -451,8 +451,8 @@ def activate_verified_on_demand_tunnel(*, offer: dict, state_dir: Path,
         with os.fdopen(fd, "rb", closefd=False):
             fcntl.flock(fd, fcntl.LOCK_EX)
             ssh_dir = Path.home() / ".ssh"
-            _user_owned_ssh_authorizations(
-                ssh_dir, offer["gateway_management_public_key"])
+            # Stage the SSH host pin, but do not add a management login key
+            # until systemd accepted the narrowly scoped tunnel start.
             pin = state_dir / "trusted-gateway-known_hosts"
             line = (offer["gateway_host"] + " " +
                     ed25519_public(offer["gateway_ssh_host_key"]) + "\n").encode("ascii")
@@ -482,6 +482,16 @@ def activate_verified_on_demand_tunnel(*, offer: dict, state_dir: Path,
                 offer["gateway_tunnel_user"] + "@" + offer["gateway_host"],
             ]
             subprocess.run(argv, check=True, capture_output=True, timeout=15)
+            try:
+                _user_owned_ssh_authorizations(
+                    ssh_dir, offer["gateway_management_public_key"])
+            except BaseException:
+                # A remote tunnel without a management login key grants no
+                # access; stop it if local account setup failed.
+                subprocess.run(
+                    ["systemctl", "--user", "stop", unit],
+                    check=False, capture_output=True, timeout=10)
+                raise
             return unit
     finally:
         os.close(fd)
