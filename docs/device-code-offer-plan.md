@@ -482,3 +482,58 @@ alone does NOT make root apply deployable.
 The new code has NOT created keys on the real Oracle, changed
 production SSH files, started 10003, granted sudo, or revoked
 the existing WSL v1 account or tunnel.
+
+
+## Checkpoint — 2026-10-15: investigate Oracle protected paths (no privilege escalation)
+
+**Test evidence:**
+https://github.com/fabianodebastiani/ai-lab-gateway/actions/runs/38827356501
+passed **151 distinct cases** (133 standard successes and 18 root
+cases skipped in the standard job; all 18 root cases ran/passed in
+the isolated GitHub root job).
+
+**Verified actual MCP identity:** `exec(oracle-gateway)` runs as
+`ai-maintenance`, UID/GID 1003 — NOT as root or `ai-lab-gateway`.
+`/etc/ai-lab-gateway` is inaccessible to this identity, so
+`test -e` saying false is NOT proof that a protected file is absent.
+Similarly `sshd -T` fails without root-readable host keys and
+does NOT establish effective sshd policy. Do not make security claims
+from these inaccessible paths.
+
+Unprivileged read-only observations: `ai-lab-gateway.service` uses
+the `ai-lab-gateway` account and
+`/opt/ai-lab-gateway/.venv/bin/ai-lab-gateway`; the tunnel account's
+home is `/var/lib/ai-lab-tunnel`. Oracle and Raspberry MCP are online,
+five Oracle services active; loopback 10001 is listening, WSL
+on-demand 10002 offline, candidate 10003 absent. Pairing v1/v2
+health still works and new code-pairing health remains HTTP404.
+
+**New safe root-only audit (source created, NOT run in Oracle root):**
+- `src/ai_lab_gateway/device_code_root_inventory.py` resolves the
+  actual device registry from the live service PID's allowlisted
+  environment value, or default when truly absent; resolves effective
+  tunnel `authorizedkeysfile` using root `sshd -T`; reports only
+  lstat metadata and registry device IDs, ports and SSH path names.
+  Never prints secrets, private key bytes, passwords or arbitrary
+  environment values. An expected `known_hosts` location is only an
+  inference until effective SSH-client configuration is verified.
+- `scripts/audit_device_code_production.py` accepts exclusively
+  `--audit-paths-only` and requires actual root in a separately
+  human-authorized console. Not installed or exposed over MCP.
+- `tests/test_device_code_root_inventory.py` has eight tests for
+  environment allowlisting, path traversal, sshd relative paths,
+  symbolic links, access failures, root-only enforcement and no
+  secret leakage.
+- New explanatory document:
+  `docs/device-code-production-inventory.md`.
+
+**Production blocker unchanged:** hardcoded root transaction paths
+are still hypotheses until the independent root audit resolves the
+true registry, tunnel authorized_keys, Gateway known_hosts and
+effective SSH service policy. No root apply installation/candidate
+SSH edits/registry switch should occur based on uncertain paths.
+
+**Next:** perform the reviewed read-only root-console audit through
+separate explicit administrator action, compare it with the current
+code, then adjust and retest root-owned path/ownership constraints.
+No attempts to bypass sudo, and no new service/port activation.
