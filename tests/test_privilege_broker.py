@@ -178,3 +178,64 @@ def test_pairing_service_journal_is_read_only_and_requires_human_approval(broker
     ]
     assert execute(broker, rid)["error"] == "not_approved"
     assert new_request(broker, operation="pairing-service-journal;sh")["error"] == "invalid_parameters"
+
+
+def test_oracle_ssh_protected_paths_needs_independent_approval(broker, monkeypatch):
+    """No caller-supplied command or pathname can reach root stat."""
+    invocations = []
+
+    def capture(argv, **kwargs):
+        invocations.append(tuple(argv))
+        return subprocess.CompletedProcess(argv, 0, "fixed metadata only\\n", "")
+
+    monkeypatch.setattr(broker.subprocess, "run", capture)
+    request = new_request(
+        broker, operation="oracle-ssh-protected-paths", ttl=300)
+    assert request["ok"] is True
+    request_id = request["request_id"]
+
+    denied = broker.dispatch({
+        "action": "execute", "subject": "auth0|user-A",
+        "request_id": request_id,
+        "command": "/usr/bin/bash", "args": ["-c", "id"],
+    })
+    assert denied["ok"] is False and denied["error"] == "not_approved"
+    assert invocations == []
+
+    # This is the same authenticated independent-approver RPC used by the
+    # password + TOTP website after it has validated the human decision.
+    approved = broker.approval_dispatch({
+        "action": "approve", "request_id": request_id})
+    assert approved["ok"] is True
+    assert approved["status"] == "approved"
+
+    done = broker.dispatch({
+        "action": "execute", "subject": "auth0|user-A",
+        "request_id": request_id,
+        "command": "/usr/bin/bash",
+        "path": "/etc/shadow",
+    })
+    assert done["ok"] is True
+    assert done["status"] == "consumed"
+    assert len(invocations) == 1
+    assert invocations[0] == broker.OPERATIONS["oracle-ssh-protected-paths"]
+    assert invocations[0][0] == "/usr/bin/stat"
+    assert "shell" not in done
+    assert broker.dispatch({
+        "action": "execute", "subject": "auth0|user-A",
+        "request_id": request_id})["error"] == "not_approved"
+
+
+def test_oracle_ssh_protected_paths_cannot_be_approved_by_operational_actor(broker):
+    """A model-controlled request payload cannot bypass approver step."""
+    req = new_request(broker, operation="oracle-ssh-protected-paths")
+    assert req["ok"] is True
+    rid = req["request_id"]
+    result = broker.dispatch({
+        "action": "approve", "subject": "auth0|user-A",
+        "request_id": rid, "approval": True,
+    })
+    assert result["ok"] is False
+    assert broker.dispatch({
+        "action": "execute", "subject": "auth0|user-A",
+        "request_id": rid})["error"] == "not_approved"
