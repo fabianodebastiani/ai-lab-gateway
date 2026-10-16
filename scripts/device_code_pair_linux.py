@@ -12,6 +12,8 @@ Do not paste tokens into a terminal or use an unverified curl|sudo shell.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import pwd
 import base64
 import hashlib
 import json
@@ -361,6 +363,130 @@ def validate_challenge(reply: dict, *, device_id: str,
     return challenge
 
 
+
+
+def _active_target_sshd_key() -> str:
+    """Query the actual local SSH daemon, never a generated unused host key."""
+    result = subprocess.run(
+        ["ssh-keyscan", "-T", "4", "-t", "ed25519", "-p", "22", "127.0.0.1"],
+        capture_output=True, text=True, timeout=8, check=False)
+    keys = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) == 3 and parts[1] == "ssh-ed25519":
+            keys.add(ed25519_public(" ".join(parts[1:])))
+    if len(keys) != 1:
+        raise PermissionError("local SSH server is absent or has ambiguous host key")
+    return keys.pop()
+
+
+def _user_owned_ssh_authorizations(ssh_dir: Path, management_key: str) -> None:
+    """Insert one exact Gateway public key, never a private key or sudo rule."""
+    owned_private_dir(ssh_dir)
+    path = ssh_dir / "authorized_keys"
+    if path.is_symlink():
+        raise PermissionError("refusing symlinked target authorized_keys")
+    if path.exists():
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+            raise PermissionError("untrusted authorized_keys")
+        if stat.S_IMODE(info.st_mode) not in (0o600, 0o644):
+            raise PermissionError("unsafe authorized_keys mode")
+        original = path.read_bytes()
+    else:
+        original = b""
+    if len(original) > 128 * 1024:
+        raise PermissionError("authorized_keys exceeds limit")
+    key_line = ed25519_public(management_key).encode("ascii")
+    existing_lines = [line.split(b" ", 2)[:2] for line in original.splitlines()]
+    key_parts = key_line.split(b" ", 1)
+    if key_parts not in existing_lines:
+        payload = original + (b"\n" if original and not original.endswith(b"\n") else b"") + key_line + b"\n"
+    else:
+        payload = original
+    # The old keys are retained; the target's SSH identity is unchanged.
+    tmp = ssh_dir / ".ai-lab-approved-key.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def activate_verified_on_demand_tunnel(*, offer: dict, state_dir: Path,
+                                       tunnel_key_path: Path,
+                                       signed_host_public_key: str,
+                                       gateway_host_pin: str) -> str:
+    """Start ordinary non-root, WSL-like outbound reverse SSH after approval.
+
+    No arbitrary command, SSH port, key or privileged mode comes from the
+    remote model. The offer must already have passed validate_connection_offer.
+    For now this is the on-demand, existing-sshd Unix-user path only.
+    """
+    if os.geteuid() == 0:
+        raise PermissionError("device activation must not run as root")
+    if offer["persistent"] is not False or offer["access_mode"] != "restricted":
+        raise PermissionError("this client can activate only Restricted on-demand")
+    if offer["management_user"] != pwd.getpwuid(os.getuid()).pw_name:
+        raise PermissionError("management SSH user differs from installer user")
+    if ed25519_public(signed_host_public_key) != _active_target_sshd_key():
+        raise PermissionError("device identity does not match active local sshd")
+    if ed25519_public(offer["gateway_ssh_host_key"]) != ed25519_public(gateway_host_pin):
+        raise PermissionError("Gateway host key differs from independently pinned key")
+    if not tunnel_key_path.is_file() or tunnel_key_path.is_symlink():
+        raise PermissionError("missing device tunnel private key")
+    key_info = tunnel_key_path.stat()
+    if key_info.st_uid != os.getuid() or stat.S_IMODE(key_info.st_mode) != 0o600:
+        raise PermissionError("untrusted device tunnel private key")
+    owned_private_dir(state_dir)
+    lock = state_dir / "activation.lock"
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "rb", closefd=False):
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            ssh_dir = Path.home() / ".ssh"
+            _user_owned_ssh_authorizations(
+                ssh_dir, offer["gateway_management_public_key"])
+            pin = state_dir / "trusted-gateway-known_hosts"
+            line = (offer["gateway_host"] + " " +
+                    ed25519_public(offer["gateway_ssh_host_key"]) + "\n").encode("ascii")
+            if pin.exists() or pin.is_symlink():
+                if pin.is_symlink() or pin.read_bytes() != line:
+                    raise PermissionError("untrusted or changed Gateway host pin")
+            else:
+                pin_fd = os.open(pin, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(pin_fd, "wb") as output:
+                    output.write(line)
+                    output.flush()
+                    os.fsync(output.fileno())
+            unit = "ai-lab-device-" + offer["device_id"]
+            argv = [
+                "systemd-run", "--user", "--collect", "--unit=" + unit,
+                "--property=Restart=on-failure", "--property=RestartSec=5s",
+                "/usr/bin/ssh", "-N", "-T",
+                "-i", str(tunnel_key_path),
+                "-o", "IdentitiesOnly=yes",
+                "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=yes",
+                "-o", "ExitOnForwardFailure=yes",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ServerAliveCountMax=3",
+                "-o", "UserKnownHostsFile=" + str(pin),
+                "-R", str(offer["reverse_listen_port"]) + ":127.0.0.1:22",
+                offer["gateway_tunnel_user"] + "@" + offer["gateway_host"],
+            ]
+            subprocess.run(argv, check=True, capture_output=True, timeout=15)
+            return unit
+    finally:
+        os.close(fd)
+
+
 def run(*, url: str, device_id: str, name: str, persistent: bool,
         state_dir: Path, host_key_path: Path, wait: bool,
         trusted_gateway_host_key_path: Path | None = None) -> int:
@@ -426,7 +552,13 @@ def run(*, url: str, device_id: str, name: str, persistent: bool,
                     trusted_gateway_host_key=trusted_key)
                 print("Oferta SSH validada; arquivos candidatos em: " +
                       str(stage_path), flush=True)
-                print("NENHUMA configuração SSH ou systemd foi instalada.", flush=True)
+                print("Preparando conexão SSH restrita...", flush=True)
+                unit = activate_verified_on_demand_tunnel(
+                    offer=offer, state_dir=state_dir,
+                    tunnel_key_path=private, signed_host_public_key=host,
+                    gateway_host_pin=trusted_key)
+                print("Túnel iniciado pelo usuário Linux: " + unit, flush=True)
+                print("Aguardando verificação independente pelo Gateway...", flush=True)
             prior_offer = offer
         status = result["status"]
         if status == "active":
