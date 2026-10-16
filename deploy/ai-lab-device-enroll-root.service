@@ -16,7 +16,10 @@ NoNewPrivileges=true
 # Root worker verifies SSH as gateway UID via setpriv --reuid; blocking
 # setuid/setgid syscalls breaks that necessary *downward* UID transition.
 PrivateTmp=true
-PrivateDevices=true
+PrivateDevices=false
+# PrivateDevices and RestrictAddressFamilies in this OCI image deny
+# setresuid, preventing the root worker from verifying an SSH key using
+# the less-privileged gateway UID. Keep other service confinement.
 ProtectSystem=strict
 ProtectHome=true
 ProtectKernelModules=true
@@ -26,6 +29,5 @@ ProtectClock=true
 RestrictSUIDSGID=false
 LockPersonality=true
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX AF_INET
 ReadWritePaths=/etc/ai-lab-gateway /var/lib/ai-lab-gateway/.ssh /var/lib/ai-lab-tunnel/.ssh /var/lib/ai-lab-root-provision
 InaccessiblePaths=/etc/ai-lab-approval /var/lib/ai-lab-approval /var/lib/ai-lab-privilege-broker
