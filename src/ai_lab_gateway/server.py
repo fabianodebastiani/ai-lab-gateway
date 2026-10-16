@@ -237,6 +237,7 @@ if os.environ.get("AI_LAB_DEVICE_CODE_MCP_ENABLED") == "1":
     from pathlib import Path as _Path
     from .device_code_operator import call_operator_lookup as _device_code_lookup
     from .device_code_operator import call_operator_confirm as _device_code_confirm
+    from .device_code_operator import call_operator_confirm_single_code as _device_code_confirm_single
 
     @mcp.tool()
     def pairing_lookup_code(code: str) -> dict:
@@ -261,6 +262,22 @@ if os.environ.get("AI_LAB_DEVICE_CODE_MCP_ENABLED") == "1":
             path=_Path("/run/ai-lab-device-code/operator.sock"),
             subject=identity.subject, request_id=request_id,
             confirmation=confirmation_code)
+
+
+    @mcp.tool()
+    def pairing_confirm_single_code(request_id: str, code: str) -> dict:
+        """Redeem original Linux-displayed code after presenting device details.
+
+        Must follow explicit user instruction in the authenticated ChatGPT
+        conversation. No second terminal code is required. This authorizes
+        identity *only* and cannot activate SSH or grant sudo. If the host
+        cannot attest independent human consent, production activation must
+        still require the established independent approval boundary.
+        """
+        identity = _authorize_device_pairing()
+        return _device_code_confirm_single(
+            path=_Path("/run/ai-lab-device-code/operator.sock"),
+            subject=identity.subject, request_id=request_id, user_code=code)
 
 
 def _http_app():
