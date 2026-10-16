@@ -181,3 +181,56 @@ not production-generic Linux onboarding. The new VM may have a different
 Linux account (e.g. ubuntu), hostname, keypair and allocated port. Those
 must be authenticated and bound to each device, not copied or inferred
 from WSL settings. Never claim the Oracle second VM can already connect.
+
+## Completed real E2E: second Oracle VM (2026-10-16 04:05 UTC)
+
+**The one-command, one-code, Restricted Linux onboarding objective was
+demonstrated against a real previously unregistered Ubuntu Oracle VM.**
+Earlier sections above are historical checkpoints, not current blockers.
+
+- On the second VM ai-lab-experiments-01, the human ran the pinned installer.
+  The first attempt caught a sudo -l -U false positive (Ubuntu returns
+  exit code 0 even for "User ... is not allowed to run sudo"). The installer
+  was fixed to allow only the exact no-sudo denial (b15054e5) and pinned
+  again (84457969); on the second attempt the no-sudo ai-gateway account
+  and SSH were prepared automatically.
+- One-time device code TWPL-PAZ4 was looked up in the authenticated ChatGPT
+  MCP. The human explicitly approved candidate
+  ai-lab-experiments-01-fd3dab34; pairing_confirm_single_code returned
+  approved, access_mode=restricted. The code has been consumed.
+- Root-only peer-validated pairing handoff is installed on Oracle and
+  inaccessible to the MCP user. The root provisioner prepared a unique
+  Gateway management keypair and staged the authorized device tunnel key,
+  with no root capability for the newly enrolled device.
+- OCI systemd sandbox options unexpectedly denied setresuid while verifying
+  SSH as the nonroot gateway UID. The generated management keypair was
+  preserved and verified on recovery, never rotated. Under the explicitly
+  authorized temporary admin window, the narrow fixed worker was executed
+  once outside the incompatible sandbox and successfully staged the offer.
+  The Linux opened reverse SSH on loopback port 11000.
+- Independent pinned SSH verification succeeded; the trusted worker returned
+  verification=active and atomically registered the device and Auth0 ACL.
+  The registry contains exactly one additional device, authorized to
+  exactly one Auth0 principal.
+- **ChatGPT MCP live result:** device_status returned online and
+  hostname=ai-lab-experiments-01; exec returned whoami=ai-gateway; attempting
+  sudo -n id -u was denied with exit code 1. The original Raspberry and
+  WSL devices were also verified online, on ports 10001 and 10002.
+- OCI root-worker systemd confinement was reduced only where its kernel
+  blocked downward UID changes. The empirically compatible sandbox retains
+  NoNewPrivileges, ProtectSystem=strict, ProtectHome, PrivateTmp,
+  ProtectControlGroups, narrow ReadWritePaths and InaccessiblePaths.
+  The independent root-worker timer was restored and verified healthy
+  (service unit revision 4fd3a952). Normal completed runs report no
+  approved or staged candidate without touching credentials.
+
+**Known limitation:** the optional device_connection_status MCP operation
+does not yet support this newly registered *nonpersistent* rootless tunnel:
+it expects a legacy per-device connection_unit helper. Generic MCP exec and
+device_status are working. The target enrolled with persistent=false, so
+do not promise automatic reconnection after reboot.
+
+**Admin lifecycle:** the temporary independent-SSH-authorized sudo window
+ends at 2026-10-16 04:23:44 UTC or should be revoked earlier through the
+existing root-owned revoke service after final diagnostics. Root-only
+pairing automation does not require this temporary maintenance grant.
