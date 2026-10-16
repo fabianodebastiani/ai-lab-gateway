@@ -6,7 +6,8 @@ import tempfile
 import unittest
 
 from ai_lab_gateway.device_code_linux_plan import (
-    plan_generic_linux_enrollment, choose_loopback_port, SSH_ACTIONS
+    plan_generic_linux_enrollment, plan_generic_linux_activation,
+    choose_loopback_port, SSH_ACTIONS
 )
 
 
@@ -56,6 +57,34 @@ class GenericLinuxPlanTests(unittest.TestCase):
             gateway_ssh_host_key=self.gateway,
             gateway_management_public_key=self.management,
         )
+
+    def test_verified_staged_offer_generates_final_registry_without_mutation(self):
+        offer, _, _ = self.plan()
+        candidate = dict(self.candidate, offer=offer)
+        originals = copy.deepcopy((self.registry, self.policy, candidate))
+        reg, policy = plan_generic_linux_activation(
+            staged_candidate=candidate, registry=self.registry,
+            policy=self.policy)
+        self.assertEqual((self.registry, self.policy, candidate), originals)
+        self.assertEqual(reg["devices"][:2], self.registry["devices"])
+        self.assertEqual(reg["devices"][-1]["tunnel_port"], 11002)
+        self.assertEqual(reg["devices"][-1]["ssh_user"], "ai-gateway")
+        self.assertEqual(policy["users"][0]["devices"][self.candidate["device_id"]],
+                         list(SSH_ACTIONS))
+        self.assertNotIn(self.candidate["device_id"],
+                         policy["users"][1]["devices"])
+        for bad in (
+            dict(candidate, access_mode="unrestricted"),
+            dict(candidate, operator_subject="auth0|other"),
+            dict(candidate, request_id="wrong"),
+            dict(candidate, offer=dict(offer, reverse_listen_port=10002)),
+            dict(candidate, offer=dict(offer, management_user="root")),
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises((PermissionError, ValueError)):
+                    plan_generic_linux_activation(
+                        staged_candidate=bad, registry=self.registry,
+                        policy=self.policy)
 
     def test_second_oracle_vm_is_supported_without_replacing_wsl(self):
         before = copy.deepcopy((self.registry, self.policy, self.candidate))
