@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import stat
 import pwd
 import socket
 import subprocess
@@ -53,6 +54,19 @@ def _trusted_root_state(group_gid: int) -> None:
     if (not BASE.is_dir() or BASE.is_symlink() or st.st_uid != 0
             or st.st_gid != group_gid or (st.st_mode & 0o777) != 0o750):
         raise PermissionError("untrusted root-managed SSH identity directory")
+
+
+def _root_journal_setup() -> None:
+    """A root-only parent prevents other Gateway UIDs swapping journal paths."""
+    for directory in (Path("/var/lib/ai-lab-root-provision"),
+                      Path("/var/lib/ai-lab-root-provision/ssh-10003")):
+        if not directory.exists() and not directory.is_symlink():
+            directory.mkdir(mode=0o700)
+        info = directory.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+                or info.st_gid != 0
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            raise PermissionError("root-only recovery journal directory invalid")
 
 
 def _trusted_files(gateway_gid: int, tunnel_uid: int,
@@ -118,6 +132,7 @@ def stage_one_approved_candidate() -> dict:
                     "action": "inspect_approved", "request_id": rid})["candidate"]
                 return same == candidate
 
+            _root_journal_setup()
             applied = apply_candidate_root_transaction(
                 production_paths(
                     tunnel_uid=tunnel.pw_uid, tunnel_gid=tunnel.pw_gid,
