@@ -1,4 +1,14 @@
 gateway.debasti.com {
+    # Unauthenticated device-code initiation/proof/poll only; no approval.
+    handle /pairing/device/* {
+        reverse_proxy 127.0.0.1:8003
+    }
+
+    # Existing invite/claim pairing and approval fallback preserved.
+    handle /pairing/* {
+        reverse_proxy 127.0.0.1:8002
+    }
+
     handle /approvals* {
         reverse_proxy 127.0.0.1:8001
     }
