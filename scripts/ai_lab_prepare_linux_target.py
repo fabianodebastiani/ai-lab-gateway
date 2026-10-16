@@ -53,7 +53,7 @@ def inspect_existing_user() -> pwd.struct_passwd:
             capture_output=True, text=True, timeout=5,
             env={**os.environ, "LC_ALL": "C", "LANG": "C"})
         denial = re.fullmatch(
-            r"User ai-gateway is not allowed to run sudo on [A-Za-z0-9._-]+\\.",
+            r"User ai-gateway is not allowed to run sudo on [A-Za-z0-9._-]+\.",
             result.stdout.strip())
         if result.returncode not in (0, 1) or denial is None or result.stderr.strip():
             raise PermissionError("management user has sudo rules or sudo policy cannot be verified")
