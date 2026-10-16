@@ -478,7 +478,7 @@ def activate_verified_on_demand_tunnel(*, offer: dict, state_dir: Path,
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
                 "-o", "UserKnownHostsFile=" + str(pin),
-                "-R", str(offer["reverse_listen_port"]) + ":127.0.0.1:22",
+                "-R", "127.0.0.1:" + str(offer["reverse_listen_port"]) + ":127.0.0.1:22",
                 offer["gateway_tunnel_user"] + "@" + offer["gateway_host"],
             ]
             subprocess.run(argv, check=True, capture_output=True, timeout=15)
