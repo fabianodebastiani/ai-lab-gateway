@@ -45,11 +45,18 @@ def inspect_existing_user() -> pwd.struct_passwd:
     if set(result.stdout.strip().split()) & BANNED_GROUPS:
         raise PermissionError("management user has privileged group membership")
     if Path("/usr/bin/sudo").is_file():
-        allowed = subprocess.run(
+        # Ubuntu sudo -l -U USER can exit with status 0 even when the
+        # result is "User ... is not allowed to run sudo on HOST".
+        # Fail closed unless the exact canonical denial is confirmed.
+        result = subprocess.run(
             ["/usr/bin/sudo", "-n", "-l", "-U", USER],
-            capture_output=True, text=True, timeout=5)
-        if allowed.returncode == 0:
-            raise PermissionError("management user has sudo rules")
+            capture_output=True, text=True, timeout=5,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"})
+        denial = re.fullmatch(
+            r"User ai-gateway is not allowed to run sudo on [A-Za-z0-9._-]+\\.",
+            result.stdout.strip())
+        if result.returncode not in (0, 1) or denial is None or result.stderr.strip():
+            raise PermissionError("management user has sudo rules or sudo policy cannot be verified")
     return user
 
 
