@@ -449,16 +449,24 @@ def main() -> int:
     parser.add_argument("--persistent", action="store_true", default=False)
     parser.add_argument("--state-dir", type=Path,
                         default=Path.home() / ".ssh" / "ai-lab-device-code")
-    parser.add_argument("--host-key", type=Path, default=HOST_KEY)
+    parser.add_argument("--host-key", type=Path, default=HOST_KEY,
+                        help="Actual sshd Ed25519 host public key, not a generated substitute")
     parser.add_argument("--trusted-gateway-host-key", type=Path,
                         help="Independent SSH host public key pin obtained securely")
     parser.add_argument("--no-wait", action="store_true", help="Only for staging protocol tests")
     args = parser.parse_args()
     try:
         device_id = args.device_id or automatic_device_id(args.state_dir)
+        # Prefer the real SSH server identity on an already configured Linux.
+        # A generated fallback is only provisional: no SSH activation until
+        # sshd is locally provisioned with that identity.
+        system_host = Path("/etc/ssh/ssh_host_ed25519_key.pub")
+        actual_host = args.host_key
+        if actual_host is None and system_host.is_file() and not system_host.is_symlink():
+            actual_host = system_host
         return run(url=args.base_url, device_id=device_id,
                    name=args.name, persistent=args.persistent,
-                   state_dir=args.state_dir, host_key_path=args.host_key,
+                   state_dir=args.state_dir, host_key_path=actual_host,
                    wait=not args.no_wait,
                    trusted_gateway_host_key_path=args.trusted_gateway_host_key)
     except (ValueError, PermissionError, FileNotFoundError, RuntimeError,
