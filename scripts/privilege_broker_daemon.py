@@ -178,6 +178,31 @@ def dispatch(message):
             audit("request", "pending", request_id, subject)
             return {"ok": True, "request_id": request_id, "status": "pending",
                     "operation": operation, "approval_deadline": now + PENDING_TTL}
+        if action == "target_request":
+            device = message.get("device_id")
+            op = message.get("operation")
+            ttl = message.get("ttl_seconds")
+            if (set(message) != {"action", "subject", "device_id", "operation", "ttl_seconds"}
+                    or not target_enabled(device) or op not in TARGET_OPS
+                    or type(ttl) is not int or not 1 <= ttl <= TARGET_MAX_TTL):
+                audit("target_request", "rejected", subject=subject)
+                return {"ok": False, "error": "target_unconfigured_or_invalid"}
+            count = sum(1 for item in entries.values()
+                        if item.get("subject") == subject and item.get("status") == "pending"
+                        and now < item.get("approval_deadline", 0))
+            if count >= MAX_PENDING_PER_SUBJECT:
+                return {"ok": False, "error": "pending_quota_reached"}
+            request_id = secrets.token_urlsafe(24)
+            entries[request_id] = {
+                "kind": "target_single_use", "device_id": device,
+                "subject": subject, "operation": op, "argv": list(TARGET_OPS[op]),
+                "ttl_seconds": ttl, "created_at": now,
+                "approval_deadline": now + PENDING_TTL, "status": "pending"}
+            save(entries)
+            audit("target_request", "pending", request_id, subject)
+            return {"ok": True, "request_id": request_id, "status": "pending",
+                    "device_id": device, "operation": op, "argv": list(TARGET_OPS[op]),
+                    "approval_deadline": now + PENDING_TTL}
         request_id = message.get("request_id")
         entry = entries.get(request_id) if isinstance(request_id, str) else None
         if not entry or entry.get("subject") != subject:
@@ -200,7 +225,43 @@ def dispatch(message):
                 save(entries)
             audit("revoke", "ok", request_id, subject)
             return {"ok": True, "request_id": request_id, "status": entry["status"]}
+        if action == "target_voucher":
+            if entry.get("kind") != "target_single_use":
+                return {"ok": False, "error": "wrong_request_kind"}
+            if (entry["status"] != "approved"
+                    or entry.get("approval_method") != "separate_human_web_ui"
+                    or not target_enabled(entry.get("device_id"))):
+                audit("target_voucher", "not_approved", request_id, subject)
+                return {"ok": False, "error": "not_approved"}
+            op = entry["operation"]
+            if op not in TARGET_OPS or entry.get("argv") != TARGET_OPS[op]:
+                return {"ok": False, "error": "operation_changed"}
+            expires = min(entry["expires_at"], now + TARGET_MAX_TTL)
+            if expires <= now:
+                return {"ok": False, "error": "expired"}
+            permit = {
+                "version": TARGET_VERSION, "device_id": entry["device_id"],
+                "subject": subject, "operation": op, "argv": list(TARGET_OPS[op]),
+                "nonce": secrets.token_hex(32),
+                "issued_at": now, "expires_at": expires}
+            # Burn the approval BEFORE signing; a failed signature is not
+            # retryable without a fresh independently approved request.
+            entry["status"] = "consumed"
+            entry["nonce_sha256"] = hashlib.sha256(
+                bytes.fromhex(permit["nonce"])).hexdigest()
+            save(entries)
+            try:
+                voucher = sign_target_permit(permit)
+            except (OSError, ValueError, PermissionError, subprocess.SubprocessError,
+                    UnicodeError):
+                audit("target_voucher", "signer_failed_closed", request_id, subject)
+                return {"ok": False, "error": "signer_failed_closed"}
+            audit("target_voucher", "issued_once", request_id, subject)
+            return {"ok": True, "request_id": request_id, "status": "consumed",
+                    "device_id": entry["device_id"], "voucher": voucher}
         if action == "execute":
+            if entry.get("kind") == "target_single_use":
+                return {"ok": False, "error": "wrong_request_kind"}
             if entry["status"] != "approved" or entry["operation"] not in OPERATIONS:
                 audit("execute", "denied", request_id, subject)
                 return {"ok": False, "error": "not_approved", "status": entry["status"]}
