@@ -209,6 +209,10 @@ def dispatch(message):
         if not entry or entry.get("subject") != subject:
             audit(str(action), "not_found_or_wrong_subject", subject=subject)
             return {"ok": False, "error": "not_found"}
+        if (entry.get("kind") == "target_single_use" and
+                message.get("device_id") != entry.get("device_id")):
+            audit(str(action), "wrong_device", subject=subject)
+            return {"ok": False, "error": "not_found"}
         # Expiry is enforced at each access and persisted.
         if entry["status"] == "pending" and now >= entry["approval_deadline"]:
             entry["status"] = "expired"
