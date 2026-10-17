@@ -365,6 +365,27 @@ acceptance tests.
 **Design and implementation checklist:** [v2 enrollment and access
 specification](v2-device-onboarding-access.md).
 
+### ADR-027 addendum — one-use command is independent of access profiles (2026-10-16)
+
+**Correction / preservation of an earlier accepted requirement:** ADR-027's
+exactly three **persistent access profiles** do not replace or remove the
+separately authorized **one-time exact-command administrative execution**
+previously agreed in issue #2 and the privilege-broker discussions. While
+Restricted, an approved operation may execute **exactly once**, with its
+exact argv/inputs bound to a consent artifact, and then becomes unusable.
+Temporary and indefinite approvals remain separate alternatives. Device
+`ai-gateway` must still have no general sudo; a device-local, root-owned
+executor checks authorizations. Do not mistake the broker on Oracle for
+this still-pending per-target feature.
+
+**User workflow retained:** one public installer, one code, Restricted SSH,
+a locally installed `ailab` CLI for connect/disconnect/status/persistence,
+and an independently consented administrative executor prepared only by
+the original *local* sudo-authorized installer. See the
+[canonical cross-feature contract](device-lifecycle-and-privileged-execution.md),
+which explicitly records retained, superseded and still-incomplete elements.
+No privilege is granted merely by pairing or by displaying an approval UI.
+
 ## ADR-028 — Connection persistence is a per-device boolean, configurable by MCP
 
 **Date:** 2026-10-14. **Status:** accepted. Implementation in progress.
