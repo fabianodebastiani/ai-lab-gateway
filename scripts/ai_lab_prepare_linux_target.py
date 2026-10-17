@@ -77,8 +77,10 @@ def prepare() -> None:
     try:
         user = inspect_existing_user()
     except KeyError:
+        # NSS/PAM account provisioning can exceed 10 s on busy fresh images;
+        # keep a bounded but realistic 90 s limit for the local administrator.
         command(["/usr/sbin/useradd", "--create-home", "--shell",
-                 "/bin/bash", USER], timeout=10)
+                 "/bin/bash", USER], timeout=90)
         user = inspect_existing_user()
     command(["/usr/bin/loginctl", "enable-linger", USER], timeout=12)
     # Linger allows the nonprivileged systemd --user tunnel to stay active
