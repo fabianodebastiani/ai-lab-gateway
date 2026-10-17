@@ -213,3 +213,22 @@ to be denied. Gateway broker/MCP runtime is not yet updated.
 
 **Note**: an installed verifier plus trusted public key is not consent
 or entitlement to administrative work. The three profiles remain unchanged.
+
+
+## 2026-10-16 — read-only target preflight verified via LIVE MCP
+
+The second Oracle VM `ai-lab-experiments-01` passed **without sudo**
+after independently downloading both artifacts from the immutable
+`930b288f5cf661e2883a68e032f27ffecc78790b` commit and
+checking their SHA256 digests. Provided only the previously confirmed
+**public** issuer key and matching fingerprint. The command was:
+`python3 -I install_target_privexec.py --check --device-id ai-lab-experiments-01-fd3dab34 --issuer-public-key issuer.pub --issuer-fingerprint SHA256:r0E6FcgCHXL0/bOarLK9gP4QQK6BFDaDiUDfUCBXW6E --executor-source executor`.
+
+Live results: **both digests OK** and `DRY_RUN_OK (no files or
+privileges changed)`. Identity: `ai-gateway`, host:
+`ai-lab-experiments-01`. This additionally checks the real directory
+layout and the existing paired target ID. The original admin `ubuntu`
+must still run the **actual** `--apply` on the second VM; no sudoers
+rule has yet been installed. After that, verify the root policy only
+permits the exact protected executable, unsigned claims return 77,
+and `sudo -n id -u` stays denied.
