@@ -108,13 +108,17 @@ class FreshUbuntuRootRestrictedTests(unittest.TestCase):
                 self.assertEqual(record["status"], "proven")
                 self.assertEqual(record["access_mode"], "restricted")
                 pair_dir = Path("/home/ai-gateway/.ssh/ai-lab-device-code")
-                for name in ("tunnel-ed25519", "host-ed25519", "device-id"):
+                for name in ("tunnel-ed25519", "device-id"):
                     p = pair_dir / name
                     self.assertTrue(p.is_file())
                     self.assertEqual(p.stat().st_uid, pwd.getpwnam(USER).pw_uid)
                     self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600)
                 self.assertEqual(pair_dir.stat().st_uid, pwd.getpwnam(USER).pw_uid)
                 self.assertEqual(stat.S_IMODE(pair_dir.stat().st_mode), 0o700)
+                # With --host-key the real sshd host identity is REUSED
+                # as public data; no bogus per-client private host key exists.
+                self.assertFalse((pair_dir / "host-ed25519").exists())
+                self.assertTrue(HOST_KEY.is_file())
                 self.assertFalse(Path("/home/ai-gateway/.ssh/authorized_keys").exists(),
                                  "unapproved pairing unexpectedly installed login access")
             finally:
