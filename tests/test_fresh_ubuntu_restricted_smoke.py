@@ -90,9 +90,21 @@ class FreshUbuntuRootRestrictedTests(unittest.TestCase):
             thread.start()
             try:
                 url = f"http://127.0.0.1:{server.server_port}"
+                # The runner's source checkout is inaccessible to the new
+                # restricted user. Exercise the same root-local, owner/mode
+                # constrained artifact installation as the actual bootstrap.
+                cache = Path("/home/ai-gateway/.cache/ai-lab-gateway")
+                prepared = invoke(["sudo", "-n", "--", "install", "-d", "-o", USER,
+                                   "-g", USER, "-m", "0700", str(cache)])
+                self.assertEqual(prepared.returncode, 0, prepared.stderr)
+                target_client = cache / "device_code_pair_linux.py"
+                staged = invoke(["sudo", "-n", "--", "install", "-o", USER,
+                                 "-g", USER, "-m", "0600",
+                                 str(CLIENT), str(target_client)])
+                self.assertEqual(staged.returncode, 0, staged.stderr)
                 client = invoke([
                     "sudo", "-n", "-u", USER, "-H", "--", "/usr/bin/python3",
-                    str(CLIENT), "--base-url", url, "--no-wait",
+                    str(target_client), "--base-url", url, "--no-wait",
                     "--name", "Disposable GitHub Ubuntu",
                     "--host-key", str(HOST_KEY),
                 ], timeout=80)
