@@ -72,6 +72,19 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn('curl | sudo',bootstrap)
         self.assertNotIn('sudo bash -c',bootstrap)
 
+    def test_local_cli_is_version_pinned_and_limited_to_nonroot_install(self):
+        bootstrap = INSTALLER.read_text()
+        cli = ROOT / "scripts" / "ailab"
+        expected = re.search(r'LOCAL_CLI_SHA256="([a-f0-9]{64})"', bootstrap)
+        self.assertIsNotNone(expected)
+        self.assertEqual(hashlib.sha256(cli.read_bytes()).hexdigest(),
+                         expected.group(1))
+        self.assertRegex(bootstrap, r'LOCAL_CLI_COMMIT="[0-9a-f]{40}"')
+        self.assertIn('"$LOCAL_CLI_URL" --output "$local_cli"', bootstrap)
+        self.assertIn('sudo -- install -o ai-gateway -g ai-gateway -m 0700', bootstrap)
+        self.assertIn('"$home/.local/bin/ailab"', bootstrap)
+        self.assertNotIn('sudo -n bash', bootstrap)
+
     def test_changed_pinned_sha256_fails_before_execute(self):
         original=INSTALLER.read_text()
         match=re.search(r'CLIENT_SHA256="([a-f0-9]{64})"',original)
