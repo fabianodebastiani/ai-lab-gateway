@@ -1,5 +1,6 @@
-"""Pre-release Linux installer: pinned HTTPS artifact, no root, no sshd."""
+"""Versioned Linux installer: pinned HTTPS client and narrow local admin setup."""
 from pathlib import Path
+import hashlib
 import os
 import re
 import stat
@@ -56,6 +57,20 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.db.lookup(user_code=re.search(
                r"Código: ([A-Z2-9]{4}-[A-Z2-9]{4})",result.stdout).group(1),
                operator_subject="auth0|lab")["device_id"],device_id)
+
+    def test_fresh_linux_privileged_helper_is_version_pinned(self):
+        bootstrap=INSTALLER.read_text()
+        helper=ROOT/"scripts"/"ai_lab_prepare_linux_target.py"
+        expected=re.search(r'LOCAL_SETUP_SHA256="([a-f0-9]{64})"',bootstrap)
+        self.assertIsNotNone(expected)
+        self.assertEqual(hashlib.sha256(helper.read_bytes()).hexdigest(),
+                         expected.group(1))
+        self.assertRegex(bootstrap,r'LOCAL_SETUP_COMMIT="[0-9a-f]{40}"')
+        self.assertIn('sudo -- /usr/bin/python3 "$helper"',bootstrap)
+        self.assertIn('sudo -u ai-gateway -H -- env',bootstrap)
+        self.assertIn('if [ "$need_local_setup" = no ]; then',bootstrap)
+        self.assertNotIn('curl | sudo',bootstrap)
+        self.assertNotIn('sudo bash -c',bootstrap)
 
     def test_changed_pinned_sha256_fails_before_execute(self):
         original=INSTALLER.read_text()

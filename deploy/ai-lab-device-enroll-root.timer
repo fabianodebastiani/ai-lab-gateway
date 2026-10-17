@@ -1,0 +1,12 @@
+[Unit]
+Description=Check approved Linux pairing SSH final-mile
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5s
+AccuracySec=1s
+Persistent=false
+Unit=ai-lab-device-enroll-root.service
+
+[Install]
+WantedBy=timers.target

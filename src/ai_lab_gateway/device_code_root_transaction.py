@@ -56,7 +56,7 @@ def production_paths(*, tunnel_uid: int, tunnel_gid: int,
     return RootSSHPaths(
         authorized_keys=PROD_AUTHORIZED_KEYS,
         known_hosts=PROD_KNOWN_HOSTS,
-        journal_dir=Path("/var/lib/ai-lab-gateway/root-provision-10003"),
+        journal_dir=Path("/var/lib/ai-lab-root-provision/ssh-10003"),
         tunnel_uid=tunnel_uid, tunnel_gid=tunnel_gid,
         gateway_uid=gateway_uid, gateway_gid=gateway_gid,
     )
@@ -256,23 +256,29 @@ def recover_candidate_root_transaction(paths: RootSSHPaths) -> bool:
         _end_lock(lock)
 
 
-def _validated_fragments(tunnel_key: str, host_key: str) -> tuple[bytes, bytes]:
+def _validated_fragments(tunnel_key: str, host_key: str, *,
+                         port: int = 10003) -> tuple[bytes, bytes]:
+    if type(port) is not int or not 11000 <= port <= 11999 and port != 10003:
+        raise PermissionError("reverse SSH port outside managed pool")
     tunnel = _validate_public_key(tunnel_key)
     host = _validate_public_key(host_key)
     if tunnel == host:
         raise PermissionError("host and tunnel SSH key cannot be equal")
     auth = (
-        'permitlisten="127.0.0.1:10003",no-agent-forwarding,'
+        f'permitlisten="127.0.0.1:{port}",no-agent-forwarding,'
         'no-X11-forwarding,no-pty,no-user-rc ' + tunnel +
         " ai-lab-wsl-v2\n").encode("ascii")
-    known = ("[127.0.0.1]:10003 " + host + "\n").encode("ascii")
+    known = (f"[127.0.0.1]:{port} " + host + "\n").encode("ascii")
     return auth, known
 
 
 def apply_candidate_root_transaction(paths: RootSSHPaths, *,
                                      request_id: str, tunnel_key: str,
                                      host_key: str, approval_check,
-                                     test_interrupt_after: int = 0) -> dict:
+                                     test_interrupt_after: int = 0,
+                                     verified_existing_host_pin: bool = False,
+                                     device_id: str = "windows-wsl",
+                                     port: int = 10003) -> dict:
     """Apply only one verified WSL candidate; no registry or service changes.
 
     The caller MUST obtain keys from the authenticated approval handoff and
@@ -283,9 +289,13 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
     """
     if not isinstance(request_id, str) or not RID.fullmatch(request_id):
         raise PermissionError("invalid candidate transaction identity")
+    if not isinstance(device_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{2,47}", device_id):
+        raise PermissionError("untrusted candidate device identifier")
+    if type(verified_existing_host_pin) is not bool:
+        raise PermissionError("invalid existing host pin mode")
     if type(test_interrupt_after) is not int or test_interrupt_after not in (0, 1, 2):
         raise ValueError("invalid test mode")
-    fragments = _validated_fragments(tunnel_key, host_key)
+    fragments = _validated_fragments(tunnel_key, host_key, port=port)
     root = _root_journal_dir(paths)
     fd = _lock(root)
     try:
@@ -298,11 +308,28 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
             raise PermissionError("fresh independent human approval unavailable")
         destinations = _destinations(paths)
         before = tuple(_read_exact(p, uid, gid) for p, uid, gid in destinations)
-        if (b'permitlisten="127.0.0.1:10003"' in before[0]
-                or b"[127.0.0.1]:10003 " in before[1]):
-            raise PermissionError("candidate port already installed")
-        after = tuple(old.rstrip(b"\n") + b"\n" + fragment
-                      for old, fragment in zip(before, fragments))
+        if f'permitlisten="127.0.0.1:{port}"'.encode() in before[0]:
+            raise PermissionError("candidate tunnel credential already authorized")
+        pinned = []
+        for line in before[1].splitlines():
+            parts = line.split()
+            if parts and parts[0] == f"[127.0.0.1]:{port}".encode():
+                pinned.append(line.strip())
+            elif parts and (f"[127.0.0.1]:{port}".encode() in parts[0].split(b",")
+                             or (parts[0].startswith(b"@") and
+                                 f"[127.0.0.1]:{port}".encode() in line)):
+                raise PermissionError("ambiguous candidate host pin")
+        if pinned:
+            if (not verified_existing_host_pin or len(pinned) != 1
+                    or pinned[0] != fragments[1].strip()):
+                raise PermissionError("candidate host pin mismatch or duplicate")
+            known_after = before[1]
+        else:
+            known_after = before[1].rstrip(b"\n") + b"\n" + fragments[1]
+        after = (
+            before[0].rstrip(b"\n") + b"\n" + fragments[0],
+            known_after,
+        )
         if any(len(chunk) > MAX_FILE for chunk in after):
             raise ValueError("candidate SSH file too large")
         payload = _journal_bytes(before, after, request_id)
@@ -331,8 +358,8 @@ def apply_candidate_root_transaction(paths: RootSSHPaths, *,
         _record(root, request_id, "applied")
         journal.unlink()
         _sync_dir(root)
-        return {"status": "candidate_ssh_staged", "port": 10003,
-                "device_id": "windows-wsl", "registry_changed": False,
+        return {"status": "candidate_ssh_staged", "port": port,
+                "device_id": device_id, "registry_changed": False,
                 "sudo_granted": False}
     finally:
         _end_lock(fd)
