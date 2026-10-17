@@ -116,3 +116,47 @@ synthetic tests do **not** prove live human consent or deployment.
 **No deployment claim** may be made from this draft. Do not blindly
 execute shell snippets or sudoers changes from ChatGPT. Show the user
 the exact signed/verifiable installation command and its risk when ready.
+
+
+## Operator hand-off: Oracle gateway ROOT READ-ONLY preflight (2026-10-16)
+
+The live MCP user `ai-maintenance` cannot read
+`/etc/ai-lab-gateway/devices.json` (permission denied), has no sudo,
+and cannot create the issuer. The three core gateway services were
+`active` and no issuer directory existed when last checked. The
+second Oracle was `online` with `ai-gateway` and no sudo.
+
+**ONE required operator action:** log on to the ORIGINAL Oracle
+Gateway VM (`ubuntu@ai-lab-gateway-01`, NOT experiments) using the
+original recovery/OCI console. Paste the following **preflight only**.
+It downloads a commit-locked Python script, verifies its SHA256, copies
+it under root ownership, checks the real root-owned device registry,
+then removes the temporary script. The script's `--check` path **never**
+creates a signing key, authorizes root, changes services or creates
+sudoers. The temporary /root file is a housekeeping step only.
+
+```bash
+set -e
+tmp="$(mktemp)"
+curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+  'https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/f0d4871d39499c27083e163c1132f3ceab3d7c7b/scripts/install_target_issuer.py' \
+  -o "$tmp"
+printf '%s  %s\n' \
+  '8c7408f6302550c39e95dff25cebc98c33d6a379a20028816250ea7d380334eb' "$tmp" | sha256sum -c -
+sudo install -o root -g root -m 0500 "$tmp" /root/ai-lab-target-issuer-preflight.py
+rm -f "$tmp"
+sudo /usr/bin/python3 -I /root/ai-lab-target-issuer-preflight.py \
+  --check --device-id ai-lab-experiments-01-fd3dab34
+sudo rm -f /root/ai-lab-target-issuer-preflight.py
+```
+
+Expected last line on success: `DRY_RUN_OK: eligible registered target;
+nothing changed`. If any step fails, STOP and share only the error
+(no tokens/secrets). The subsequent `--apply` procedure is a
+**separate reviewed and human-authorized** task, never silently
+performed by this preflight.
+
+The preflight GitHub raw artifact and digest were independently
+verified via the live Gateway nonroot MCP account. **Do not infer**
+that the final PR branch head/future revised script has the same
+digest: this command is locked to the exact commit above.
