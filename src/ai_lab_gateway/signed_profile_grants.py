@@ -81,7 +81,7 @@ def canonical_grant_bytes(claim: dict) -> bytes:
 
 
 def verify_signed_grant(raw: bytes, *, trusted_public_key: bytes,
-                        expected_device: str, now: int) -> VerifiedProfileGrant:
+                        expected_device: str, expected_subject: str, now: int) -> VerifiedProfileGrant:
     """Verify schema, exact target, time rules and detached Ed25519 signature.
 
     Trusted public key must come from protected pre-provisioned LOCAL trust,
@@ -92,7 +92,8 @@ def verify_signed_grant(raw: bytes, *, trusted_public_key: bytes,
             or len(trusted_public_key) != 32
             or type(now) is not int or now < 0
             or not isinstance(expected_device, str)
-            or not DEVICE_ID.fullmatch(expected_device)):
+            or not DEVICE_ID.fullmatch(expected_device)
+            or not _identity(expected_subject)):
         raise ValueError("invalid verifier input")
     try:
         envelope = json.loads(raw.decode("utf-8"), object_pairs_hook=_strict_pairs,
@@ -107,6 +108,7 @@ def verify_signed_grant(raw: bytes, *, trusted_public_key: bytes,
     if (claim["version"] != VERSION
             or not isinstance(claim["device_id"], str)
             or claim["device_id"] != expected_device
+            or claim["subject"] != expected_subject
             or not _identity(claim["subject"])
             or not _identity(claim["approved_by"])
             or not isinstance(claim["approval_method"], str)
