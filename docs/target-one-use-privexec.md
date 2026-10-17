@@ -232,3 +232,46 @@ must still run the **actual** `--apply` on the second VM; no sudoers
 rule has yet been installed. After that, verify the root policy only
 permits the exact protected executable, unsigned claims return 77,
 and `sudo -n id -u` stays denied.
+
+
+## 2026-10-16 verified TARGET root installer deployment (human sudo)
+
+The human entered the exact pinned/hashed two-file installer on the original
+`ubuntu@ai-lab-experiments-01` console and returned:
+
+```text
+install.py: OK
+executor: OK
+DRY_RUN_OK (no files or privileges changed)
+INSTALLED: limited root executor only; no voucher approved
+/etc/sudoers.d/90-ai-lab-target-privexec: parsed OK
+AI_LAB_TARGET_INSTALL_COMPLETE
+```
+
+**Independently verified through real ChatGPT MCP as ai-gateway:**
+`sudo -n /usr/bin/id -u` is **DENIED** (exit 1). Running the ONE fixed
+`sudo -n -- /usr/local/libexec/ai-lab-target-privexec` with empty stdin
+returns `PRIVEXEC_DENIED: ValueError`, exit **77**. A tampered
+untrusted JSON voucher also returns **77**. `sudo -n -l` reveals exactly
+`(root) NOPASSWD: /usr/local/libexec/ai-lab-target-privexec ""`;
+no other sudo entitlement. The reverse SSH systemd --user tunnel remains
+`active` and `hostname` returns `ai-lab-experiments-01`.
+
+The Gateway root-only issuer trust directory was separately verified as
+`root:root 0700`. The broker, approval web and MCP services remain
+`active` with their **old** installed code. As of this checkpoint,
+the Gateway host still has not deployed the signing-capable broker, new
+approval page, or feature-gated MCP tools, and no target permit has been
+issued or signed. No positive live root execution with a valid human
+approval is yet claimed.
+
+**Deployment detail from live inspection:** Gateway MCP currently runs
+`/opt/ai-lab-gateway/.venv/bin/ai-lab-gateway` with
+`PYTHONPATH=/opt/ai-lab-gateway/src` and device-code flag enabled;
+the source tree `/opt/ai-lab-gateway/src/ai_lab_gateway` is root-owned.
+Root broker binary is `/usr/local/libexec/ai-lab-privilege-brokerd`;
+approver binary `/usr/local/libexec/ai-lab-approval-web`.
+The human must separately authorize backup, code update, policy and
+service restart. The existing gateway's `ai-maintenance` user has no sudo.
+**Next stage: reviewed and reversible Gateway runtime deployment, not
+another target VM sudo installation.**
