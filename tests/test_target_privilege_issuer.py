@@ -181,6 +181,57 @@ class SignedHumanApprovalIntegration(unittest.TestCase):
         self.assertFalse(self.approve_via_web_socket(rid)["ok"])
         self.assertFalse(self.voucher(rid)["ok"])
 
+
+    def test_original_root_console_approve_exact_target_one_use(self):
+        req = self.request()
+        rid = req["request_id"]
+        self.assertEqual(broker.admin("approve", rid), 77)
+        self.assertFalse(self.voucher(rid)["ok"])
+        self.assertEqual(broker.admin(
+            "approve_target", rid,
+            expected_device="raspberry-lab",
+            expected_operation="root-identity-check"), 77)
+        self.assertEqual(broker.admin(
+            "approve_target", rid,
+            expected_device=self.device,
+            expected_operation="sudo-bash"), 77)
+        state = broker.dispatch({
+            "action": "status", "subject": self.subject,
+            "device_id": self.device, "request_id": rid})
+        self.assertEqual(state["status"], "pending")
+        self.assertEqual(broker.admin(
+            "approve_target", rid,
+            expected_device=self.device,
+            expected_operation="root-identity-check"), 0)
+        self.assertEqual(broker.load()[rid]["approval_method"],
+                         "separate_human_root_console")
+        issued = self.voucher(rid)
+        self.assertTrue(issued["ok"], issued)
+        raw = json.dumps(issued["voucher"]).encode("utf8")
+        self.assertEqual(target.execute_packet(raw), (0, "0\\n"))
+        self.assertEqual(self.voucher(rid)["error"], "not_approved")
+        with self.assertRaises(FileExistsError):
+            target.execute_packet(raw)
+
+    def test_root_console_does_not_approve_expired_or_denied_target(self):
+        req = self.request()
+        rid = req["request_id"]
+        self.assertEqual(broker.admin("deny", rid), 0)
+        self.assertEqual(broker.admin(
+            "approve_target", rid,
+            expected_device=self.device,
+            expected_operation="root-identity-check"), 77)
+        req2 = self.request()
+        rid2 = req2["request_id"]
+        state = broker.load()
+        state[rid2]["approval_deadline"] = 1
+        broker.save(state)
+        self.assertEqual(broker.admin(
+            "approve_target", rid2,
+            expected_device=self.device,
+            expected_operation="root-identity-check"), 77)
+        self.assertFalse(self.voucher(rid2)["ok"])
+
     def test_legacy_oracle_broker_rejects_target_request_on_execute(self):
         req = self.request()
         rid = req["request_id"]
