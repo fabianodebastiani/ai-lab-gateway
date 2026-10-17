@@ -1,0 +1,220 @@
+#!/usr/bin/python3 -I
+"""AI Lab target-side one-use root executor: fail-closed proof-of-concept.
+
+NOT ACTIVE BY INSTALLING THIS FILE. A *separate*, explicit local administrator
+installation is required to configure root-controlled trust and an exact
+sudoers invocation. This script does not issue or approve credentials.
+
+A voucher is accepted ONLY if a separately authenticated, human-confirmed
+authority signed it. ChatGPT messages, OAuth identity and ordinary SSH keys
+cannot sign it. No production issuer is shipped with this prototype.
+"""
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+VERSION = "ai-lab-privexec-one-v1"
+NAMESPACE = "ai-lab-privexec-v1"
+SIGNER = "ai-lab-privilege-approver-v1"
+CONFIG = Path("/etc/ai-lab-target-privexec")
+STATE = Path("/var/lib/ai-lab-target-privexec")
+MAX_INPUT = 16 * 1024
+MAX_TTL = 300
+MAX_OUTPUT = 1024
+NONCE = re.compile(r"[a-f0-9]{64}\Z")
+DEVICE = re.compile(r"[a-z][a-z0-9-]{2,47}\Z")
+# The early acceptance fixture can only PROVE root was reached.
+# No arbitrary commands, shells, package managers, systemctl or file writes.
+OPERATIONS = {"root-identity-check": ("/usr/bin/id", "-u")}
+FIELDS = frozenset({
+    "version", "device_id", "subject", "operation", "argv",
+    "issued_at", "expires_at", "nonce",
+})
+ENVELOPE_FIELDS = frozenset({"permit", "signature"})
+
+
+def protected(path: Path, *, is_dir: bool = False) -> None:
+    """Every trusted path is root-owned, exact mode, and never a symlink."""
+    st = path.lstat()
+    expected = stat.S_ISDIR if is_dir else stat.S_ISREG
+    expected_mode = 0o700 if is_dir else 0o600
+    if (not expected(st.st_mode) or st.st_uid != 0 or st.st_gid != 0
+            or stat.S_IMODE(st.st_mode) != expected_mode):
+        raise PermissionError("untrusted root-controlled file " + str(path))
+
+
+def config() -> tuple[str, Path]:
+    protected(CONFIG, is_dir=True)
+    device_path = CONFIG / "device-id"
+    signer_path = CONFIG / "allowed_signers"
+    protected(device_path)
+    protected(signer_path)
+    device = device_path.read_text(encoding="ascii").strip()
+    if not DEVICE.fullmatch(device):
+        raise PermissionError("invalid locally installed device identity")
+    if signer_path.stat().st_size > 4096:
+        raise PermissionError("oversized trust authority configuration")
+    # ONLY a local administrator may install the known approver's public
+    # key into allowed_signers. Never learn it from the request/HTTPS.
+    signer_line = signer_path.read_text(encoding="ascii").strip()
+    fields = signer_line.split()
+    if (len(fields) != 3 or fields[0] != SIGNER
+            or fields[1] != "ssh-ed25519" or len(fields[2]) > 2048):
+        raise PermissionError("invalid approver trust anchor")
+    return device, signer_path
+
+
+def duplicate_reject_pairs(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for k, v in pairs:
+        if k in result:
+            raise ValueError("duplicate JSON key")
+        result[k] = v
+    return result
+
+
+def packet(raw: bytes, *, now: int, device: str) -> tuple[dict, bytes, str]:
+    """Strict canonical body. Signature is detached and independently checked."""
+    if not raw or len(raw) > MAX_INPUT:
+        raise ValueError("oversized or empty voucher")
+    envelope = json.loads(raw, object_pairs_hook=duplicate_reject_pairs)
+    if not isinstance(envelope, dict) or set(envelope) != ENVELOPE_FIELDS:
+        raise ValueError("unexpected envelope")
+    permit = envelope["permit"]
+    signature = envelope["signature"]
+    if not isinstance(permit, dict) or set(permit) != FIELDS:
+        raise ValueError("unexpected authorization fields")
+    if (permit["version"] != VERSION or permit["device_id"] != device
+            or not isinstance(permit["subject"], str)
+            or not 1 <= len(permit["subject"]) <= 256
+            or any(ord(x) < 33 or ord(x) > 126 for x in permit["subject"])
+            or not isinstance(permit["nonce"], str)
+            or not NONCE.fullmatch(permit["nonce"])):
+        raise PermissionError("invalid or unbound authorization")
+    op = permit["operation"]
+    if (not isinstance(op, str) or op not in OPERATIONS
+            or type(permit["argv"]) is not list
+            or permit["argv"] != list(OPERATIONS[op])):
+        raise PermissionError("operation or arguments not allowlisted")
+    issued, expires = permit["issued_at"], permit["expires_at"]
+    if (type(issued) is not int or type(expires) is not int
+            or expires <= issued or expires - issued > MAX_TTL
+            or issued > now + 30 or expires <= now):
+        raise PermissionError("authorization timestamp expired or invalid")
+    if (not isinstance(signature, str) or len(signature) > 4000
+            or not signature.startswith("-----BEGIN SSH SIGNATURE-----\n")
+            or not signature.endswith("-----END SSH SIGNATURE-----\n")
+            or "\r" in signature):
+        raise PermissionError("invalid OpenSSH signature encoding")
+    # Canonical JSON is what the independent approver signed; the parse
+    # cannot add or remove fields in transit, and nonce is signed too.
+    canonical = (json.dumps(permit, sort_keys=True, separators=(",", ":"),
+                            ensure_ascii=True) + "\n").encode("ascii")
+    return permit, canonical, signature
+
+
+def verified_signature(canonical: bytes, signature: str, signer_path: Path) -> None:
+    # Signature temp exists only in a root-owned directory. The PRIVATE
+    # signing key is never installed on the target or exposed through MCP.
+    with tempfile.TemporaryDirectory(prefix=".verify-", dir=STATE) as d:
+        sig_path = Path(d) / "signature"
+        sig_path.write_text(signature, encoding="ascii")
+        sig_path.chmod(0o600)
+        result = subprocess.run([
+            "/usr/bin/ssh-keygen", "-Y", "verify",
+            "-f", str(signer_path), "-I", SIGNER,
+            "-n", NAMESPACE, "-s", str(sig_path),
+        ], input=canonical, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=8, check=False, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+    if result.returncode:
+        raise PermissionError("independent human-approved signature required")
+
+
+def state_ready() -> None:
+    protected(STATE, is_dir=True)
+    protected(STATE / "used", is_dir=True)
+    protected(STATE / "revoked", is_dir=True)
+    protected(STATE / "lock")
+
+
+def consume_once(permit: dict, *, now: int) -> None:
+    """Durable, serial, no-replay record written BEFORE privilege execution."""
+    nonce = permit["nonce"]
+    lock = STATE / "lock"
+    fd = os.open(lock, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            # Caller may have waited behind a lock: revalidate expiration.
+            if int(time.time()) >= permit["expires_at"]:
+                raise PermissionError("authorization expired before execution")
+            used = STATE / "used" / nonce
+            revoked = STATE / "revoked" / nonce
+            if revoked.exists() or revoked.is_symlink():
+                raise PermissionError("authorization explicitly revoked")
+            data = (json.dumps({
+                "operation": permit["operation"], "device_id": permit["device_id"],
+                "subject": permit["subject"], "consumed_at": now,
+                "nonce": nonce,
+            }, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+            marker = os.open(used, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+            try:
+                with os.fdopen(marker, "wb") as record:
+                    record.write(data)
+                    record.flush()
+                    os.fsync(record.fileno())
+            finally:
+                os.fsync(os.open(STATE / "used", os.O_RDONLY | os.O_DIRECTORY))
+    finally:
+        os.close(fd)
+
+
+def execute_root_operation(permit: dict) -> tuple[int, str]:
+    result = subprocess.run(
+        OPERATIONS[permit["operation"]], shell=False,
+        stdin=subprocess.DEVNULL, capture_output=True, timeout=8,
+        text=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        check=False)
+    return result.returncode, result.stdout[:MAX_OUTPUT]
+
+
+def execute_packet(raw: bytes, *, now: int | None = None) -> tuple[int, str]:
+    if os.geteuid() != 0:
+        raise PermissionError("executor requires root (not MCP direct exec)")
+    target, signer = config()
+    state_ready()
+    checked_at = int(time.time()) if now is None else now
+    permit, canonical, signature = packet(raw, now=checked_at, device=target)
+    verified_signature(canonical, signature, signer)
+    consume_once(permit, now=checked_at)
+    return execute_root_operation(permit)
+
+
+def main() -> int:
+    if len(sys.argv) != 1:
+        print("PRIVEXEC_DENIED: no arguments accepted", file=sys.stderr)
+        return 77
+    try:
+        # Never spill a signed grant into process arguments or shell history.
+        raw = sys.stdin.buffer.read(MAX_INPUT + 1)
+        result, output = execute_packet(raw)
+        sys.stdout.write(output)
+        return result
+    except (PermissionError, ValueError, OSError, subprocess.SubprocessError,
+            UnicodeError, KeyError, TypeError) as exc:
+        # Keep the policy error terse: no user/token/key material in output.
+        print("PRIVEXEC_DENIED: " + type(exc).__name__, file=sys.stderr)
+        return 77
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
