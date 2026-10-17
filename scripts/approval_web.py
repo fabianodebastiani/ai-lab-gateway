@@ -449,11 +449,24 @@ class ApprovalHandler(BaseHTTPRequestHandler):
             rid = protected(item.get("request_id", ""))
             operation = protected(item.get("operation", ""))
             subject = protected(item.get("subject", ""))
+            # Never hide which EXACT argv a proposed root voucher allows.
+            kind = item.get("kind", "oracle_fixed")
+            scope_label = ("Dispositivo Linux remoto: autorização de uso único"
+                           if kind == "target_single_use" else "Operação Oracle fixa")
+            allowed_argv = item.get("argv", ())
+            if (not isinstance(allowed_argv, (tuple, list))
+                    or not all(isinstance(arg, str) for arg in allowed_argv)
+                    or len(allowed_argv) > 16):
+                allowed_argv = ("INVÁLIDO",)
+            rendered_argv = protected(json.dumps(allowed_argv, ensure_ascii=False))
             deadline = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(item["approval_deadline"]))
             csrf = protected(session["csrf"])
             blocks.append(
-                f"<section><h2>{operation}</h2><p class='meta'>Dispositivo: "
-                f"{protected(item.get('device_id'))} · Solicitante: <code>{subject}</code>"
+                f"<section><h2>{operation}</h2><p class='meta'>"
+                f"Escopo: <strong>{protected(scope_label)}</strong><br>"
+                f"Dispositivo: <code>{protected(item.get('device_id'))}</code>"
+                f" · Solicitante: <code>{subject}</code>"
+                f"<br>Comando permitido: <code>{rendered_argv}</code>"
                 f"<br>Expira para aprovação: {protected(deadline)}"
                 f"<br>Validade após aprovação: {int(item['ttl_seconds']) // 60} min</p>"
                 f"<form action='{BASE}/decision' method='post'>"

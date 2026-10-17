@@ -1,0 +1,89 @@
+name: Target privileged executor (synthetic isolated root lab)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/ai-lab-target-privexec"
+      - "tests/test_target_privexec.py"
+      - "scripts/deploy_console_approval_broker.py"
+      - "tests/test_console_approval_broker_deploy.py"
+      - "scripts/deploy_target_privilege_gateway.py"
+      - "tests/test_target_gateway_rollout.py"
+      - "tests/test_approval_web.py"
+      - "tests/test_privilege_broker.py"
+      - "tests/test_target_privilege_transport.py"
+      - "src/ai_lab_gateway/ssh_exec.py"
+      - "src/ai_lab_gateway/control.py"
+      - "scripts/install_target_issuer.py"
+      - "tests/test_target_issuer_install.py"
+      - "tests/test_target_privexec_install.py"
+      - "scripts/install_target_privexec.py"
+      - "tests/test_target_privilege_issuer.py"
+      - "scripts/privilege_broker_daemon.py"
+      - "scripts/approval_web.py"
+      - "src/ai_lab_gateway/server.py"
+      - ".github/workflows/target-privexec-lab.yml"
+  pull_request:
+    paths:
+      - "scripts/ai-lab-target-privexec"
+      - "tests/test_target_privexec.py"
+      - "scripts/deploy_console_approval_broker.py"
+      - "tests/test_console_approval_broker_deploy.py"
+      - "scripts/deploy_target_privilege_gateway.py"
+      - "tests/test_target_gateway_rollout.py"
+      - "tests/test_approval_web.py"
+      - "tests/test_privilege_broker.py"
+      - "tests/test_target_privilege_transport.py"
+      - "src/ai_lab_gateway/ssh_exec.py"
+      - "src/ai_lab_gateway/control.py"
+      - "scripts/install_target_issuer.py"
+      - "tests/test_target_issuer_install.py"
+      - "tests/test_target_privexec_install.py"
+      - "scripts/install_target_privexec.py"
+      - "tests/test_target_privilege_issuer.py"
+      - "scripts/privilege_broker_daemon.py"
+      - "scripts/approval_web.py"
+      - "src/ai_lab_gateway/server.py"
+      - ".github/workflows/target-privexec-lab.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-signed-voucher:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify only disposable runner has root
+        run: sudo -n id -u | grep -qx 0
+      - name: Confirm executor syntax and no startup behavior
+        run: |
+          python3 -m py_compile scripts/ai-lab-target-privexec scripts/install_target_privexec.py scripts/install_target_issuer.py scripts/privilege_broker_daemon.py scripts/approval_web.py src/ai_lab_gateway/server.py src/ai_lab_gateway/ssh_exec.py src/ai_lab_gateway/control.py scripts/deploy_target_privilege_gateway.py scripts/deploy_console_approval_broker.py
+          grep -q "NOT ACTIVE BY INSTALLING THIS FILE" scripts/ai-lab-target-privexec
+      - name: Run isolated negative tests and one-success concurrent replay
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privexec.py -v
+      - name: Simulate independent approved TOTP broker callback then verify signed one-use root voucher
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privilege_issuer.py -v
+      - name: Simulate one-time local admin installer and rollback without touching runner host system paths
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privexec_install.py -v
+      - name: Simulate Gateway root-only signer installation using synthetic registered device
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_issuer_install.py -v
+      - name: Verify SSH transport never places a signed permit in process arguments
+        run: /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privilege_transport.py -v
+      - name: Verify original Oracle root broker and independent browser approval did not regress
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest==8.4.2
+          python3 -m pytest -q tests/test_privilege_broker.py tests/test_approval_web.py
+      - name: Test root-only Gateway transaction with exact authorization and service rollback
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_gateway_rollout.py -v
+      - name: Verify independently authorized root-console broker patch deploy and recovery
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_console_approval_broker_deploy.py -v
+      - name: Verify no executor installed to host sudoers
+        run: |
+          test ! -e /etc/sudoers.d/ai-lab-target-privexec
+          test ! -e /usr/local/libexec/ai-lab-target-privexec

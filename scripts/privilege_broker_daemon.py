@@ -6,6 +6,8 @@ the broker trusts only its dedicated Unix service UID to forward that identity.
 Human approvals use either the root CLI or a separately authenticated web service.\nNo arbitrary shell commands.
 """
 import argparse
+import hashlib
+import re
 import fcntl
 import json
 import os
@@ -41,6 +43,65 @@ MAX_TTL = 86400
 MAX_REQUEST_BYTES = 16384
 PENDING_TTL = 3600
 MAX_PENDING_PER_SUBJECT = 20
+
+# Target Linux one-use signing is a separate trust scope from Oracle operations.
+# Absent root-configured signing material and device allowlist => always deny.
+TARGET_ISSUER_DIR = Path("/etc/ai-lab-target-issuer")
+TARGET_ISSUER_KEY = TARGET_ISSUER_DIR / "issuer_ed25519"
+TARGET_DEVICES = TARGET_ISSUER_DIR / "targets.json"
+TARGET_NAMESPACE = "ai-lab-privexec-v1"
+TARGET_VERSION = "ai-lab-privexec-one-v1"
+TARGET_OPS = {"root-identity-check": ["/usr/bin/id", "-u"]}
+TARGET_MAX_TTL = 300
+TARGET_DEVICE_RE = re.compile(r"[a-z][a-z0-9-]{2,47}\Z")
+
+
+def trusted_target_file(path, directory=False):
+    st = path.lstat()
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not kind(st.st_mode) or st.st_uid != 0 or st.st_gid != 0 or
+            stat.S_IMODE(st.st_mode) != (0o700 if directory else 0o600)):
+        raise PermissionError("target issuer root trust invalid")
+
+
+def target_enabled(device_id):
+    if not isinstance(device_id, str) or not TARGET_DEVICE_RE.fullmatch(device_id):
+        return False
+    try:
+        trusted_target_file(TARGET_ISSUER_DIR, True)
+        trusted_target_file(TARGET_DEVICES)
+        if TARGET_DEVICES.stat().st_size > 4096:
+            return False
+        cfg = json.loads(TARGET_DEVICES.read_text(encoding="utf8"))
+        return (type(cfg) is dict and set(cfg) == {"version", "devices"} and
+                type(cfg["version"]) is int and cfg["version"] == 1 and
+                isinstance(cfg["devices"], list) and len(cfg["devices"]) <= 25 and
+                all(isinstance(x, str) and TARGET_DEVICE_RE.fullmatch(x)
+                    for x in cfg["devices"]) and device_id in cfg["devices"])
+    except (OSError, ValueError, PermissionError, TypeError):
+        return False
+
+
+def sign_target_permit(permit):
+    # This call is permitted ONLY after independent human-verified approval.
+    trusted_target_file(TARGET_ISSUER_DIR, True)
+    trusted_target_file(TARGET_ISSUER_KEY)
+    if TARGET_ISSUER_KEY.stat().st_size > 4096:
+        raise PermissionError("invalid issuer private key size")
+    canonical = (json.dumps(permit, sort_keys=True, separators=(",", ":"),
+                            ensure_ascii=True) + "\n").encode("ascii")
+    signed = subprocess.run(
+        ["/usr/bin/ssh-keygen", "-Y", "sign", "-n", TARGET_NAMESPACE,
+         "-f", str(TARGET_ISSUER_KEY)],
+        input=canonical, capture_output=True, timeout=8, check=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+    signature = signed.stdout.decode("ascii")
+    if (len(signature) > 4000 or
+            not signature.startswith("-----BEGIN SSH SIGNATURE-----\n") or
+            not signature.endswith("-----END SSH SIGNATURE-----\n")):
+        raise PermissionError("issuer returned invalid signature")
+    return {"permit": permit, "signature": signature}
+
 
 def audit(action, outcome, request_id=None, subject=None):
     event = {"time": int(time.time()), "action": action, "outcome": outcome,
@@ -117,10 +178,40 @@ def dispatch(message):
             audit("request", "pending", request_id, subject)
             return {"ok": True, "request_id": request_id, "status": "pending",
                     "operation": operation, "approval_deadline": now + PENDING_TTL}
+        if action == "target_request":
+            device = message.get("device_id")
+            op = message.get("operation")
+            ttl = message.get("ttl_seconds")
+            if (set(message) != {"action", "subject", "device_id", "operation", "ttl_seconds"}
+                    or not target_enabled(device)
+                    or not isinstance(op, str) or op not in TARGET_OPS
+                    or type(ttl) is not int or not 1 <= ttl <= TARGET_MAX_TTL):
+                audit("target_request", "rejected", subject=subject)
+                return {"ok": False, "error": "target_unconfigured_or_invalid"}
+            count = sum(1 for item in entries.values()
+                        if item.get("subject") == subject and item.get("status") == "pending"
+                        and now < item.get("approval_deadline", 0))
+            if count >= MAX_PENDING_PER_SUBJECT:
+                return {"ok": False, "error": "pending_quota_reached"}
+            request_id = secrets.token_urlsafe(24)
+            entries[request_id] = {
+                "kind": "target_single_use", "device_id": device,
+                "subject": subject, "operation": op, "argv": list(TARGET_OPS[op]),
+                "ttl_seconds": ttl, "created_at": now,
+                "approval_deadline": now + PENDING_TTL, "status": "pending"}
+            save(entries)
+            audit("target_request", "pending", request_id, subject)
+            return {"ok": True, "request_id": request_id, "status": "pending",
+                    "device_id": device, "operation": op, "argv": list(TARGET_OPS[op]),
+                    "approval_deadline": now + PENDING_TTL}
         request_id = message.get("request_id")
         entry = entries.get(request_id) if isinstance(request_id, str) else None
         if not entry or entry.get("subject") != subject:
             audit(str(action), "not_found_or_wrong_subject", subject=subject)
+            return {"ok": False, "error": "not_found"}
+        if (entry.get("kind") == "target_single_use" and
+                message.get("device_id") != entry.get("device_id")):
+            audit(str(action), "wrong_device", subject=subject)
             return {"ok": False, "error": "not_found"}
         # Expiry is enforced at each access and persisted.
         if entry["status"] == "pending" and now >= entry["approval_deadline"]:
@@ -132,6 +223,7 @@ def dispatch(message):
         if action == "status":
             audit("status", "ok", request_id, subject)
             return {"ok": True, "request_id": request_id, "operation": entry["operation"],
+                    "device_id": entry.get("device_id"), "kind": entry.get("kind", "oracle_fixed"),
                     "status": entry["status"], "expires_at": entry.get("expires_at")}
         if action == "revoke":
             if entry["status"] in ("pending", "approved"):
@@ -139,7 +231,45 @@ def dispatch(message):
                 save(entries)
             audit("revoke", "ok", request_id, subject)
             return {"ok": True, "request_id": request_id, "status": entry["status"]}
+        if action == "target_voucher":
+            if entry.get("kind") != "target_single_use":
+                return {"ok": False, "error": "wrong_request_kind"}
+            if (entry["status"] != "approved"
+                    or entry.get("approval_method") not in (
+                        "separate_human_web_ui",
+                        "separate_human_root_console")
+                    or not target_enabled(entry.get("device_id"))):
+                audit("target_voucher", "not_approved", request_id, subject)
+                return {"ok": False, "error": "not_approved"}
+            op = entry["operation"]
+            if op not in TARGET_OPS or entry.get("argv") != TARGET_OPS[op]:
+                return {"ok": False, "error": "operation_changed"}
+            expires = min(entry["expires_at"], now + TARGET_MAX_TTL)
+            if expires <= now:
+                return {"ok": False, "error": "expired"}
+            permit = {
+                "version": TARGET_VERSION, "device_id": entry["device_id"],
+                "subject": subject, "operation": op, "argv": list(TARGET_OPS[op]),
+                "nonce": secrets.token_hex(32),
+                "issued_at": now, "expires_at": expires}
+            # Burn the approval BEFORE signing; a failed signature is not
+            # retryable without a fresh independently approved request.
+            entry["status"] = "consumed"
+            entry["nonce_sha256"] = hashlib.sha256(
+                bytes.fromhex(permit["nonce"])).hexdigest()
+            save(entries)
+            try:
+                voucher = sign_target_permit(permit)
+            except (OSError, ValueError, PermissionError, subprocess.SubprocessError,
+                    UnicodeError):
+                audit("target_voucher", "signer_failed_closed", request_id, subject)
+                return {"ok": False, "error": "signer_failed_closed"}
+            audit("target_voucher", "issued_once", request_id, subject)
+            return {"ok": True, "request_id": request_id, "status": "consumed",
+                    "device_id": entry["device_id"], "voucher": voucher}
         if action == "execute":
+            if entry.get("kind") == "target_single_use":
+                return {"ok": False, "error": "wrong_request_kind"}
             if entry["status"] != "approved" or entry["operation"] not in OPERATIONS:
                 audit("execute", "denied", request_id, subject)
                 return {"ok": False, "error": "not_approved", "status": entry["status"]}
@@ -158,14 +288,18 @@ def dispatch(message):
         audit(str(action), "unsupported", request_id, subject)
         return {"ok": False, "error": "unsupported_action"}
 
-def admin(command, request_id=None):
+def admin(command, request_id=None, *, expected_device=None, expected_operation=None):
     if command == "list":
         with locked():
             entries = load()
             out = [
                 {"request_id": rid, "operation": e["operation"],
                  "status": e["status"], "created_at": e["created_at"],
-                 "approval_deadline": e["approval_deadline"], "subject": e["subject"]}
+                 "approval_deadline": e["approval_deadline"], "subject": e["subject"],
+                 "kind": e.get("kind", "oracle_fixed"),
+                 "device_id": e.get("device_id", "oracle-gateway"),
+                 "argv": e.get("argv", list(OPERATIONS.get(e["operation"], ()))),
+                 "ttl_seconds": e["ttl_seconds"]}
                 for rid, e in entries.items() if e["status"] == "pending"]
         print(json.dumps(out, indent=2))
         return 0
@@ -175,15 +309,30 @@ def admin(command, request_id=None):
         if not entry or entry["status"] != "pending":
             print("DENIED: no pending request", file=sys.stderr)
             return 77
+        if command == "approve_target":
+            if (entry.get("kind") != "target_single_use"
+                    or entry.get("device_id") != expected_device
+                    or entry.get("operation") != expected_operation
+                    or expected_operation != "root-identity-check"
+                    or not target_enabled(expected_device)
+                    or entry.get("argv") != TARGET_OPS["root-identity-check"]):
+                audit("admin_approve_target", "wrong_device_or_operation", request_id)
+                print("DENIED: target or exact operation mismatch", file=sys.stderr)
+                return 77
+        elif command == "approve" and entry.get("kind") == "target_single_use":
+            print("DENIED: target approvals require explicit device/operation CLI", file=sys.stderr)
+            return 77
         now = int(time.time())
         if now >= entry["approval_deadline"]:
             entry["status"] = "expired"
             save(entries)
             return 77
-        entry["status"] = "approved" if command == "approve" else "denied"
-        if command == "approve":
+        entry["status"] = "approved" if command in ("approve", "approve_target") else "denied"
+        if command in ("approve", "approve_target"):
             entry["approved_at"] = now
             entry["expires_at"] = now + entry["ttl_seconds"]
+            if command == "approve_target":
+                entry["approval_method"] = "separate_human_root_console"
         save(entries)
         audit("admin_" + command, "ok", request_id, entry["subject"])
         print(json.dumps({"request_id": request_id, "status": entry["status"],
@@ -227,6 +376,8 @@ def approval_dispatch(message):
                  "subject": item["subject"], "device_id": item.get("device_id"),
                  "created_at": item["created_at"],
                  "approval_deadline": item["approval_deadline"],
+                 "kind": item.get("kind", "oracle_fixed"),
+                 "argv": item.get("argv", list(OPERATIONS.get(item["operation"], ()))),
                  "ttl_seconds": item["ttl_seconds"]}
                 for rid, item in entries.items()
                 if item.get("status") == "pending"
@@ -334,13 +485,24 @@ def main():
     group.add_argument("--serve", action="store_true")
     group.add_argument("--list", action="store_true")
     group.add_argument("--approve")
+    group.add_argument("--approve-target")
     group.add_argument("--deny")
+    parser.add_argument("--expected-device")
+    parser.add_argument("--expected-operation")
     args = parser.parse_args()
     if args.serve:
         daemon()
         return 0
     if args.list:
         return admin("list")
+    if args.approve_target:
+        if not args.expected_device or not args.expected_operation:
+            parser.error("--approve-target requires --expected-device and --expected-operation")
+        return admin("approve_target", args.approve_target,
+                     expected_device=args.expected_device,
+                     expected_operation=args.expected_operation)
+    if args.expected_device or args.expected_operation:
+        parser.error("target expectations are only valid with --approve-target")
     if args.approve:
         return admin("approve", args.approve)
     return admin("deny", args.deny)
