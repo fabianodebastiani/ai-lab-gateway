@@ -4,12 +4,16 @@ on:
     branches: [feat/linux-one-command-v1]
     paths:
       - 'scripts/install_ai_lab_device.sh'
+      - 'scripts/publish_linux_bootstrap.py'
+      - 'tests/test_publish_linux_bootstrap.py'
       - 'tests/test_one_command_installer.py'
       - 'tests/test_fresh_ubuntu_restricted_smoke.py'
       - '.github/workflows/linux-first-run-lab.yml'
   pull_request:
     paths:
       - 'scripts/install_ai_lab_device.sh'
+      - 'scripts/publish_linux_bootstrap.py'
+      - 'tests/test_publish_linux_bootstrap.py'
       - 'tests/test_one_command_installer.py'
       - 'tests/test_fresh_ubuntu_restricted_smoke.py'
       - '.github/workflows/linux-first-run-lab.yml'
@@ -71,3 +75,17 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -p test_fresh_ubuntu_restricted_smoke.py -v
+
+  public-bootstrap-publisher-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check immutable bootstrap publisher (never apply)
+        run: python -m unittest discover -s tests -p test_publish_linux_bootstrap.py -v
+      - name: Check publisher cannot accidentally ship root wildcard sudo
+        run: |
+          ! grep -Eq 'NOPASSWD:[[:space:]]*ALL|curl[[:space:]]*\|[[:space:]]*sudo' scripts/publish_linux_bootstrap.py
