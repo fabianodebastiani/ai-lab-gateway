@@ -13,6 +13,10 @@ CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/$
 LOCAL_SETUP_COMMIT="b15054e57540414afc7faa9cf7442669c6dc0230"
 LOCAL_SETUP_SHA256="1753c62d5dd9ce716ffc8a1582c9f16e603e17759a2353fe3b034aa9ee269454"
 LOCAL_SETUP_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${LOCAL_SETUP_COMMIT}/scripts/ai_lab_prepare_linux_target.py"
+# Non-root local CLI, pinned independently from the pairing client.
+LOCAL_CLI_COMMIT="3c7d67334655338ffb0a003abf16a65fc963a150"
+LOCAL_CLI_SHA256="4924cb0d0f1fdb9e361d4129f2d8c7045c9c1eaea093cb0ef66de9e489eb12af"
+LOCAL_CLI_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${LOCAL_CLI_COMMIT}/scripts/ailab"
 
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -120,6 +124,22 @@ sys.exit(0 if digest == sys.argv[2] else 1)
     sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.cache/ai-lab-gateway"
     sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$client" "$home/.cache/ai-lab-gateway/device_code_pair_linux.py"
     sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$gateway_pin" "$home/.cache/ai-lab-gateway/gateway_host_key.pub"
+    local_cli="$directory/ailab"
+    curl --fail --location --silent --show-error \
+         --proto '=https' --proto-redir '=https' --tlsv1.2 \
+         --max-time 30 "$LOCAL_CLI_URL" --output "$local_cli"
+    if ! python3 -c '
+import hashlib,sys
+with open(sys.argv[1],"rb") as file:
+    digest=hashlib.sha256(file.read()).hexdigest()
+sys.exit(0 if digest == sys.argv[2] else 1)
+' "$local_cli" "$LOCAL_CLI_SHA256"; then
+        printf '%s\n' "AI Lab: hash do gestor local de conexão incorreto." >&2
+        exit 8
+    fi
+    sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.local/bin"
+    sudo -- install -o ai-gateway -g ai-gateway -m 0700 "$local_cli" "$home/.local/bin/ailab"
+    printf '%s\n' "AI Lab: gestor local verificado e instalado no usuário Restrito: $home/.local/bin/ailab"
     sudo -u ai-gateway -H -- env "XDG_RUNTIME_DIR=/run/user/$target_id" \
         /usr/bin/python3 "$home/.cache/ai-lab-gateway/device_code_pair_linux.py" \
         --base-url https://gateway.debasti.com \
