@@ -128,6 +128,28 @@ class FirstRunInstallerTests(unittest.TestCase):
                         "/usr/bin/python3", "/home/ai-gateway/.local/bin/ailab"])
                     self.assertEqual(lines[8:], args)
 
+    def test_verify_all_downloads_before_first_local_sudo(self):
+        source = INSTALLER.read_text()
+        # Both the local helper and the CLI must be downloaded and their
+        # SHA-256 validated BEFORE the first root-authorized setup mutation.
+        after = source.index('    if ! command -v sudo', source.index('if [ "$need_local_setup" = no ]; then'))
+        part = source[after:]
+        helper_check = part.index('"$helper" "$LOCAL_SETUP_SHA256"')
+        cli_download = part.index('download "$LOCAL_CLI_URL" "$local_cli"')
+        cli_check = part.index('"$local_cli" "$LOCAL_CLI_SHA256"')
+        local_root = part.index('sudo -- /usr/bin/python3 "$helper"')
+        self.assertLess(helper_check, cli_download)
+        self.assertLess(cli_download, cli_check)
+        self.assertLess(cli_check, local_root)
+
+    def test_human_shortcut_is_only_published_after_pairing_success(self):
+        source = INSTALLER.read_text()
+        paired = source.rindex('sudo -u ai-gateway -H -- env')
+        publish = source.index('install -m 0700 "$wrapper" "$shortcut"')
+        self.assertLess(paired, publish)
+        self.assertIn("Only publish the human convenience shortcut after successful pairing", source)
+        self.assertLess(source.index('atalho ailab existente'), paired)
+
     def test_human_shortcut_does_not_overwrite_existing_local_file(self):
         script = INSTALLER.read_text()
         self.assertIn('if [ -L "$HOME/.local" ] || [ -L "$HOME/.local/bin" ]', script)
