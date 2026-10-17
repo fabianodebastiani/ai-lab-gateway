@@ -193,6 +193,40 @@ A previously issued signed voucher cannot yet be remotely revoked on an
 offline device; current isolated voucher lifetime is capped at 300s.
 Immediate post-issuance revocation is a future acceptance requirement.
 
+## 2026-10-16 — live sudo supervisor rollout: installed, NOT yet E2E approved
+
+**Human administrative actions completed on the two Oracle VMs:**
+the original local `ubuntu` account installed the root-owned approver
+signing key and one-device allowlist on `ai-lab-gateway-01`, then the
+restricted target executor and exact `sudoers` no-arguments rule on
+`ai-lab-experiments-01`. The original Oracle administrator also ran
+the reviewed transactional broker/web/MCP rollout and received
+`AI_LAB_GATEWAY_ROLLOUT_COMPLETE`, with all three services active.
+
+**Independent live MCP observations:** Gateway status ok, Caddy and approval
+health ok; new `AI_LAB_TARGET_PRIVILEGE_MCP_ENABLED=1` flag present;
+the second VM is online and its SSH tunnel active; unrestricted `sudo id`
+is still denied; invoking the protected target executor with an empty or
+invalid voucher denies (code 77).
+
+**Blocking the final positive human-approved root test:** This chat's
+connected AI Lab Gateway MCP tool catalog remains the previous version and
+does not yet expose the four new target privilege tool names. Source code
+is running on the Gateway, but current ChatGPT connector discovery has not
+refreshed. Do **not** substitute old Oracle privilege tools, bypass human
+TOTP approval via shells/SSH, or manufacture a voucher. Refresh/reconnect
+the existing connector in ChatGPT (user action; start a new conversation
+if needed), then complete one genuine `root-identity-check` approval
+and one-use execution. User must not share passwords, TOTP or keys in chat.
+
+Source, reviewed installs, exact public signing fingerprint, backups,
+rollback and acceptance checklist live in
+[PR #10 runbook](https://github.com/fabianodebastiani/ai-lab-gateway/blob/feat/target-single-use-privexec/docs/target-one-use-privexec.md).
+This is **live installed, only negative security tested**. It must not
+be described as positive authorized root E2E verified. The single-use
+mechanism is separate from the three access profiles; later 15min–24h
+and opt-in unrestricted modes and offline revocation are still pending.
+
 ## Publication discipline
 
 This file is the canonical cross-feature contract. When any connected
