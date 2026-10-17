@@ -322,3 +322,50 @@ def test_parallel_revocations_do_not_drop_updates(root_store):
         assert w.exitcode==0
     ids=m._read_state(store.directory/'state.json',DEVICE)['revoked_grant_ids']
     assert len(ids)==8
+
+
+def _real_signed_grant(signer, *, subject=SUBJECT):
+    """Synthetic full signed profile envelope, WITHOUT monkeypatching the verifier."""
+    from ai_lab_gateway import signed_profile_grants as g
+    claim = {
+        'version': g.VERSION, 'device_id': DEVICE,
+        'subject': subject, 'approved_by': 'auth0|human',
+        'approval_method': 'separate_human_root_console',
+        'mode': 'partial', 'issued_at': NOW, 'expires_at': NOW+900,
+        'generation': 1, 'grant_id': 'a'*64,
+        'capabilities': [m.CAPABILITY],
+    }
+    signature = signer[0].sign(g.canonical_grant_bytes(claim))
+    return json.dumps({'grant':claim,
+                       'signature':base64.b64encode(signature).decode()}).encode()
+
+
+def test_full_two_signature_chain_and_local_revoke(root_store, signer, grant):
+    store,_,_ = root_store
+    raw_grant = _real_signed_grant(signer)
+    raw_lease = encode(lease_claim(grant), signer)
+    result = store.evaluate_signed(raw_grant, raw_lease,
+                                   trusted_public_key=signer[1],
+                                   expected_subject=SUBJECT)
+    assert result.effective_mode == 'partial'
+    assert result.reason == 'signed_lease_metadata_only'
+    store.revoke_id(grant.grant_id)
+    result = store.evaluate_signed(raw_grant, raw_lease,
+                                   trusted_public_key=signer[1],
+                                   expected_subject=SUBJECT)
+    assert result.effective_mode == 'restricted'
+
+
+def test_full_chain_rejects_wrong_subject_and_tampering(root_store, signer, grant):
+    store,_,_ = root_store
+    lease = encode(lease_claim(grant), signer)
+    with pytest.raises(PermissionError):
+        store.evaluate_signed(_real_signed_grant(signer, subject='auth0|other'),
+                              lease, trusted_public_key=signer[1],
+                              expected_subject=SUBJECT)
+    tampered = json.loads(_real_signed_grant(signer))
+    tampered['grant']['expires_at'] = NOW+1800
+    with pytest.raises(PermissionError):
+        store.evaluate_signed(json.dumps(tampered).encode(), lease,
+                              trusted_public_key=signer[1],
+                              expected_subject=SUBJECT)
