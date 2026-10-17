@@ -16,6 +16,7 @@ sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
 DEVICE = 'ai-lab-experiments-01-fd3dab34'
+SUBJECT = 'auth0|synthetic-subject'
 NOW = 100_000
 
 
@@ -48,7 +49,7 @@ def signed(c, private):
 
 def verify(c, signer, *, now=NOW, expected_device=DEVICE):
     return m.verify_signed_grant(signed(c, signer[0]), trusted_public_key=signer[1],
-                                 expected_device=expected_device, now=now)
+                                 expected_device=expected_device, expected_subject=SUBJECT, now=now)
 
 
 def effective(g, *, now=NOW, floor=NOW, epoch=0, revoked=()):
@@ -95,7 +96,7 @@ def test_tampering_invalidates_signature(signer):
     raw['grant']['approved_by'] = 'auth0|attacker'
     with pytest.raises(PermissionError, match='signature'):
         m.verify_signed_grant(json.dumps(raw).encode(), trusted_public_key=signer[1],
-                              expected_device=DEVICE, now=NOW)
+                              expected_device=DEVICE, expected_subject=SUBJECT, now=NOW)
 
 
 def test_other_key_is_not_trusted(signer):
@@ -103,7 +104,7 @@ def test_other_key_is_not_trusted(signer):
         serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     with pytest.raises(PermissionError, match='signature'):
         m.verify_signed_grant(signed(claim(), signer[0]), trusted_public_key=other,
-                              expected_device=DEVICE, now=NOW)
+                              expected_device=DEVICE, expected_subject=SUBJECT, now=NOW)
 
 
 def test_wrong_device_even_with_valid_issuer_signature(signer):
@@ -165,14 +166,14 @@ def test_duplicate_keys_rejected(signer):
     raw = raw[:-1] + ',"grant":{}}'
     with pytest.raises(ValueError, match='duplicate'):
         m.verify_signed_grant(raw.encode(), trusted_public_key=signer[1],
-                              expected_device=DEVICE, now=NOW)
+                              expected_device=DEVICE, expected_subject=SUBJECT, now=NOW)
 
 
 def test_excessive_and_missing_bytes_rejected(signer):
     for raw in (b'', b'x' * 4097, b'{}'):
         with pytest.raises(ValueError):
             m.verify_signed_grant(raw, trusted_public_key=signer[1],
-                                  expected_device=DEVICE, now=NOW)
+                                  expected_device=DEVICE, expected_subject=SUBJECT, now=NOW)
 
 
 def test_unrecognized_and_extra_fields_rejected(signer):
@@ -187,7 +188,7 @@ def test_signature_domain_separates_one_use_permit(signer):
     raw = json.dumps({'grant': c, 'signature': base64.b64encode(s).decode()}).encode()
     with pytest.raises(PermissionError, match='signature'):
         m.verify_signed_grant(raw, trusted_public_key=signer[1],
-                              expected_device=DEVICE, now=NOW)
+                              expected_device=DEVICE, expected_subject=SUBJECT, now=NOW)
 
 
 def test_revocation_state_must_be_explicitly_provided(signer):
@@ -200,4 +201,9 @@ def test_nonfinite_json_is_rejected(signer):
     raw = signed(claim(), signer[0]).replace(b'100000', b'NaN', 1)
     with pytest.raises(ValueError):
         m.verify_signed_grant(raw, trusted_public_key=signer[1],
-                              expected_device=DEVICE, now=NOW)
+                              expected_device=DEVICE, expected_subject=SUBJECT, now=NOW)
+
+
+def test_issuer_signed_grant_for_other_subject_rejected(signer):
+    with pytest.raises(PermissionError, match='unbound'):
+        verify(claim(subject='auth0|different-operator'), signer)
