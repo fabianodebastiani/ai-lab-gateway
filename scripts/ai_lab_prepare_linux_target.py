@@ -55,8 +55,31 @@ def inspect_existing_user() -> pwd.struct_passwd:
         denial = re.fullmatch(
             r"User ai-gateway is not allowed to run sudo on [A-Za-z0-9._-]+\.",
             result.stdout.strip())
-        if result.returncode not in (0, 1) or denial is None or result.stderr.strip():
-            raise PermissionError("management user has sudo rules or sudo policy cannot be verified")
+        # Re-enrollment or local repair can encounter an existing one-use
+        # verifier. Accept exactly its NO-ARGUMENT, single-command sudo rule;
+        # reject all generic sudo and every extra allowance fail-closed.
+        header = re.search(
+            r"(?m)^User ai-gateway may run the following commands on "
+            r"[A-Za-z0-9._-]+:\n", result.stdout)
+        expected_command = (
+            '(root) NOPASSWD: /usr/local/libexec/ai-lab-target-privexec ""')
+        allowed = (result.returncode == 0 and header is not None
+                   and result.stdout[header.end():].strip() == expected_command)
+        if allowed:
+            sudoers = Path("/etc/sudoers.d/90-ai-lab-target-privexec")
+            executor = Path("/usr/local/libexec/ai-lab-target-privexec")
+            for file, mode in ((sudoers, 0o440), (executor, 0o755)):
+                metadata = file.lstat()
+                if (not stat.S_ISREG(metadata.st_mode) or
+                        metadata.st_uid != 0 or metadata.st_gid != 0 or
+                        stat.S_IMODE(metadata.st_mode) != mode or
+                        metadata.st_nlink != 1):
+                    raise PermissionError("untrusted scoped sudo executor")
+        if (result.stderr.strip() or
+                not (allowed or
+                     (result.returncode in (0, 1) and denial is not None))):
+            raise PermissionError(
+                "management user has sudo rules beyond exact supervised executor")
     return user
 
 
