@@ -352,3 +352,54 @@ def test_target_rejects_issuer_lease_bound_to_different_signed_boot(rig):
     with pytest.raises(PermissionError,match='boot|bound'):
         verify_short_lease(issued,trusted_public_key=app.issuer_public,
                            grant=grant,expected_boot_id=BOOT,now=NOW)
+
+
+
+def _synthetic_target_state(app, *, clock):
+    from ai_lab_gateway.profile_lease_state import RootProfileState
+    folder=app.directory.parent/'target-root-state'
+    folder.mkdir(mode=0o700)
+    state=RootProfileState(folder,DEVICE,clock=lambda:clock[0],boot_reader=lambda:BOOT)
+    state.initialize()
+    return state
+
+
+def test_true_two_signature_to_root_state_metadata_chain(rig):
+    app,_,_=rig
+    original,claim=approved_grant(rig)
+    lease=renew(rig,original,claim)
+    clock=[NOW]
+    target=_synthetic_target_state(app,clock=clock)
+    result=target.evaluate_signed(original,lease,
+        trusted_public_key=app.issuer_public,expected_subject=SUBJECT)
+    assert result.effective_mode=='partial'
+    assert result.capability==m.CAPABILITY
+    assert result.expires_at==NOW+300
+    assert not hasattr(result,'execute_root')
+    target.revoke_id(claim['grant_id'])
+    result=target.evaluate_signed(original,lease,
+        trusted_public_key=app.issuer_public,expected_subject=SUBJECT)
+    assert result.effective_mode=='restricted'
+
+
+def test_issuer_revoke_does_not_magically_revoke_offline_target(rig):
+    # Critical security property: offline already-issued lease remains valid
+    # locally for at most 300s without an authenticated revocation update.
+    app,_,_=rig
+    original,claim=approved_grant(rig)
+    lease=renew(rig,original,claim)
+    clock=[NOW]
+    target=_synthetic_target_state(app,clock=clock)
+    app.revoke_grant(claim['grant_id'],now=NOW+1)
+    clock[0]=NOW+2
+    # No revocation message reached the target: this remains diagnostic Partial.
+    assert target.evaluate_signed(original,lease,
+             trusted_public_key=app.issuer_public,
+             expected_subject=SUBJECT).effective_mode=='partial'
+    with pytest.raises(PermissionError):
+        renew(rig,original,claim,now=NOW+2,
+              requested_at=NOW+2,request_id='e'*64)
+    clock[0]=NOW+300
+    with pytest.raises(PermissionError,match='expired'):
+        target.evaluate_signed(original,lease,
+             trusted_public_key=app.issuer_public,expected_subject=SUBJECT)
