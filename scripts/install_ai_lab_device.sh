@@ -125,8 +125,8 @@ sys.exit(0 if digest == sys.argv[2] else 1)
     sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$client" "$home/.cache/ai-lab-gateway/device_code_pair_linux.py"
     sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$gateway_pin" "$home/.cache/ai-lab-gateway/gateway_host_key.pub"
     local_cli="$directory/ailab"
-    curl --fail --location --silent --show-error \\
-         --proto '=https' --proto-redir '=https' --tlsv1.2 \\
+    curl --fail --location --silent --show-error \
+         --proto '=https' --proto-redir '=https' --tlsv1.2 \
          --max-time 30 "$LOCAL_CLI_URL" --output "$local_cli"
     if ! python3 -c '
 import hashlib,sys
@@ -134,12 +134,12 @@ with open(sys.argv[1],"rb") as file:
     digest=hashlib.sha256(file.read()).hexdigest()
 sys.exit(0 if digest == sys.argv[2] else 1)
 ' "$local_cli" "$LOCAL_CLI_SHA256"; then
-        printf '%s\\n' "AI Lab: hash do gestor local de conexão incorreto." >&2
+        printf '%s\n' "AI Lab: hash do gestor local de conexão incorreto." >&2
         exit 8
     fi
     sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.local/bin"
     sudo -- install -o ai-gateway -g ai-gateway -m 0700 "$local_cli" "$home/.local/bin/ailab"
-    printf '%s\\n' "AI Lab: gestor local verificado e instalado no usuário Restrito: $home/.local/bin/ailab"
+    printf '%s\n' "AI Lab: gestor local verificado e instalado no usuário Restrito: $home/.local/bin/ailab"
     sudo -u ai-gateway -H -- env "XDG_RUNTIME_DIR=/run/user/$target_id" \
         /usr/bin/python3 "$home/.cache/ai-lab-gateway/device_code_pair_linux.py" \
         --base-url https://gateway.debasti.com \
