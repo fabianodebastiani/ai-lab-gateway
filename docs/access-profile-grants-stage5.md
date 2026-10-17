@@ -48,3 +48,37 @@ The 45 local tests use disposable, in-memory Ed25519 keys and deterministic time
 **Next incremental implementation:** root-owned state and short renewable lease verification in synthetic fixtures only; then a separately reviewed issuer backed by independent consent, MCP operations, and eventually a narrowly deployed target executor on the disposable Oracle.
 
 Until those layers exist, these profile grants are **design and parser evidence, not administrative access**.
+
+
+## 2026-10-17 — Increment 2: root-local revocation and short signed leases (isolated)
+
+**SOURCE/TESTS ONLY; still NOT installed on any managed Linux device, not exposed by MCP, not a general root executor.**
+
+Added [profile_lease_state.py](../src/ai_lab_gateway/profile_lease_state.py) and [test_profile_lease_state.py](../tests/test_profile_lease_state.py). This increment completes the first *synthetic proof* of durable root-state bookkeeping and separately verified short-lived lease metadata, without granting execution capabilities.
+
+### Verified scope
+
+- **Lease verification:** separate Ed25519 signing domain, canonical signed envelope and exact binding to device, expected OAuth subject, signed Partial grant ID/generation, harmless allowlisted capability, current Linux boot ID and issue/expiry timestamps. Lease duration is **at most 300 seconds** and cannot extend beyond its parent grant's expiry. Invalid signature, altered data, wrong device/subject/boot, oversized TTL and missing fields fail closed.
+- **Root-local protected state prototype:** root-owned 0700 directory and 0600 regular files, no-follow file opening, immutable file ownership/mode checks, bounded strict JSON, flock serialization, atomic replacement, file/directory fsync, persistent revocation by grant ID or generation and non-decreasing recorded wall-clock watermark.
+- **Startup/recovery:** initial state is deny-by-default until an original *local* root administrator creates a protected directory and initializes it. Re-initialization is rejected. **After reboot or Linux boot ID change, checks fail closed until an independently reviewed recovery/rebinding mechanism is developed**; this is not the final operational restart experience.
+- **Evaluation:** two signed artifacts (profile grant and short lease) are independently verified against root-local state before the module reports Partial diagnostic metadata. Revocation immediately changes that local assessment to Restricted. This module does NOT execute commands, install a sudo rule, modify the PR #10 executor or create a working Partial privilege.
+- **Separate lifetime:** short leases are intentionally renewable/multi-use *metadata* within their lifetime, not one-use sudo vouchers. To execute as root, the separately signed exact-command mechanism (PR #10) would still have to enforce a privileged operation. The actual lease issuer, refresh/renewal path and execution integration are **NOT implemented**.
+
+### Tests and reproducibility
+
+- The 45 original synthetic signed-profile tests are retained.
+- The new tests cover 43 synthetic cases including Ed25519 lease validation, wrong subject/boot, expiry, local revocation persistence, concurrent writers, malformed/symlink/untrusted root state, clock regression, short-lease expiration and the **full cryptographic chain** with both grant and lease signatures.
+- Run the 45 unprivileged tests with python -m pytest -q tests/test_signed_profile_grants.py.
+- Run the new root-filesystem tests **ONLY on a disposable test runner**, for example the root-only GitHub Actions job. They MUST NOT be run on the production Gateway or user devices. The tests create only temporary synthetic files and random test keys.
+- GitHub workflow .github/workflows/profile-grant-lab.yml now has two separate jobs: unprivileged profile parser tests and root-owned state tests on a disposable Ubuntu runner.
+
+### Known security boundaries / blockers before deployment
+
+1. **Offline immediate revocation is impossible** for an already issued valid lease without contacting an authority or receiving revocation information. The prototype bounds a signed short lease to 300 seconds; an offline target may still evaluate the previous lease until it expires if its local trust state has not learned about the revoke. Issuer policy rechecks before lease renewal do not exist yet.
+2. **Wall-clock + state file is not a secure clock.** A system-clock change alone is detected when the stored floor exceeds the new value. A disk snapshot rollback combined with a matching clock rollback is *not* detected. Define trusted time / rollback protection and documented fail-closed recovery before attaching real privileges.
+3. **No boot reconnection protocol:** current root-local prototype rejects a new boot ID. Fresh independent authorization and strictly monotonic revocation generation must be required before rebinding after reboot; neither procedure is implemented.
+4. **No issuer and no independent human evidence** is added here. The module verifies a signing authority's attestation but does not itself confirm that a person consented; that must be handled at the trusted issuer.
+5. **No unrestricted administration:** a signed Unrestricted claim still evaluates to Restricted, and this increment does not expose shells, apt, services, file mutation or wildcard sudo. Broad access would require a separate, explicit high-risk design and acceptance protocol.
+6. **No deployment approvals implied.** Keep PR #12 Draft and separated from PR #10. Audit, replay, restart/rollback and root enforcer integration remain required before enabling anything on the second Oracle.
+
+**Next:** independently human-approved issuer for short leases and root-controlled renewal after checking the current profile/revocation; prototype a minimal signed/verified grant installation and audited metadata-only MCP status before connecting to any privileged executor.
