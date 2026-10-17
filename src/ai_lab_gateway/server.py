@@ -219,15 +219,23 @@ if os.environ.get("AI_LAB_TARGET_PRIVILEGE_MCP_ENABLED") == "1":
                            request_id=request_id)
 
     @mcp.tool()
-    def target_privilege_voucher(device_id: str, request_id: str) -> dict:
-        """Retrieve one cryptographically signed voucher ONLY after human approval.
+    def target_privilege_execute(device_id: str, request_id: str) -> dict:
+        """Consume one independently human-approved request and run exact root operation.
 
-        Voucher issuance burns the approved request; repeating this call fails.
-        The voucher cannot execute without target-side verified root trust.
+        The cryptographic voucher travels privately from the root broker
+        to the Linux executor through SSH stdin and is never shown in ChatGPT.
         """
         identity = _authorize_target_privilege(device_id)
-        return broker_call("target_voucher", identity.subject, device_id=device_id,
-                           request_id=request_id)
+        plane = _control_plane()
+        # The broker returns a voucher only after independent human approval.
+        issued = broker_call("target_voucher", identity.subject, device_id=device_id,
+                             request_id=request_id)
+        if not issued.get("ok"):
+            return issued
+        result = plane.execute_target_privilege(identity, device_id, issued["voucher"])
+        return {"ok": result.exit_code == 0, "status": "consumed",
+                "exit_code": result.exit_code, "stdout": result.stdout,
+                "stderr": result.stderr}
 
     @mcp.tool()
     def target_privilege_revoke(device_id: str, request_id: str) -> dict:
