@@ -2,6 +2,49 @@
 
 Experimental gateway for giving AI clients controlled, auditable command-line access to remote Linux devices.
 
+## Current verified status — 2026-10-16 (read before older historical checkpoints)
+
+**Repository visibility: PUBLIC** (verified through GitHub repository metadata).
+The device bootstrap fetches **commit-pinned and SHA256-checked** code from
+public raw.githubusercontent.com over HTTPS; the target does not need a
+GitHub login. Private SSH keys, OAuth secrets and human approval credentials
+are never to be stored in Git.
+
+**One-code Restricted Linux enrollment is live and E2E verified:** a
+previously unregistered second Oracle Ubuntu VM was paired with a single
+eight-character code in ChatGPT, after human approval. Reverse SSH
+registered it at loopback port 11000. Live MCP command execution returned
+hostname `ai-lab-experiments-01` and user `ai-gateway`, with sudo denied;
+WSL and Raspberry remain online. The generic activation fixes and real
+checkpoint are in [draft PR #8](../../pull/8), **not merged to main**.
+
+**Local `ailab` command:** [draft PR #9](../../pull/9) implements
+`status`, `connect`, `disconnect`, `persistent on/off`, using
+existing approved local SSH identities and `systemd --user`, without sudo.
+CI succeeded. The command was installed under the nonadmin
+`/home/ai-gateway/.local/bin/ailab` on the second Oracle VM, and
+`status`, already-connected `connect`, and non-disruptive
+`persistent off` were validated via real MCP without dropping the tunnel.
+The actual live tunnel is still **transient, on-demand**. Changing to
+permanent startup, intentionally disconnecting and reconnecting, and
+persistence after reboot **have not been live-tested**.
+
+**Target sudo is NOT implemented or granted.** The approved architecture
+preserves *one-use exact-operation approval*, temporary approval with a
+selectable TTL, and strongly confirmed indefinite approval. These are
+independent of the three Restricted/Partial/Unrestricted access profiles.
+The privileged target executor requires a separate reviewed implementation,
+local administrator bootstrap, independent human consent, and negative E2E
+tests. See [canonical Linux lifecycle and supervised execution contract](docs/device-lifecycle-and-privileged-execution.md),
+[ADR-027/028/029](docs/decisions.md), and [issue #2](../../issues/2).
+The preexisting Oracle-root broker is a separate fixed-operation allowlist
+and does not grant root to SSH devices.
+
+**The older implementation statuses below are dated history.** Do not
+use them as the current source of truth for E2E pairing or admin privileges.
+
+
+
 The project is intended for labs, development boards, Raspberry Pi-class systems, embedded Linux targets, and other machines that may sit behind NAT/CGNAT or restrictive firewalls.
 
 ## Core idea
