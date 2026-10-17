@@ -275,3 +275,46 @@ The human must separately authorize backup, code update, policy and
 service restart. The existing gateway's `ai-maintenance` user has no sudo.
 **Next stage: reviewed and reversible Gateway runtime deployment, not
 another target VM sudo installation.**
+
+
+## Reviewed Gateway production rollout — ready for original human administrator
+
+The Gateway code update is prepared, NOT applied. Immutable source snapshot:
+`634c43ce55cefa3c2815b12ea38974e947259477`.
+
+- Root-only roll-forward/rollback utility:
+  `scripts/deploy_target_privilege_gateway.py`, SHA256
+  `4d8c8118ef97401c0ccb43ac372a9b4cc1bd01c9068bd418edc3e3ee475c74ff`.
+- The utility contains an internal SHA256 manifest for **exactly five**
+  installed files: root broker, web approver, MCP server, control plane,
+  and SSH execution transport. No other code is replaced.
+- Requires the already human-created root-only issuer and exactly one
+  existing authorized `exec` user for the second Oracle VM. Refuses
+  multiple candidates; grants ONLY this existing subject the new per-device
+  `target_privilege_execute` action. Does not add a new user or grant
+  actions to another device.
+- `--check` is nonmutating. `--apply` first saves every original file,
+  owner/mode and full original authorization policy under
+  `/var/backups/ai-lab-target-privilege-rollout-v1` (root-only 0700).
+  It installs one systemd environment drop-in that enables the new
+  feature flag without changing existing device-code settings. Then
+  restarts only `ai-lab-privilege-broker`, `ai-lab-approval-web`,
+  `ai-lab-gateway`. It verifies all are active. A failure attempts
+  immediate rollback.
+- A separate local administrator
+  `sudo python3 -I deploy_target_privilege_gateway.py --rollback`
+  restores tracked originals and disables the new flag, then restarts
+  the same services. Snapshot remains protected for auditing.
+- **Operator warning:** brief outage of the Gateway MCP and approval UI
+  is possible during the supervised restart; reverse SSH tunnel and
+  other devices are not reconfigured. Recovery uses original
+  `ubuntu` session, NOT the MCP connection being restarted.
+- Latest CI at the pinned SHA passed, including root-only simulated
+  rollout/rollback after failed service restart and the preexisting
+  web-approval and Oracle-root-broker regression suites.
+- No real TOTP consent, target root success or reissued credential
+  has yet occurred. The next live execution must be authorized through
+  the existing independent human HTTPS approval site.
+
+**Never run rollout as ai-maintenance over the MCP SSH connection; it
+has no sudo and cannot be trusted for recovery.**
