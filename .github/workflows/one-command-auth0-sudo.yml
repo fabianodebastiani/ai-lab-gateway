@@ -10,11 +10,13 @@ on:
       - 'scripts/install_target_privexec.py'
       - 'scripts/ai-lab-target-privexec'
       - 'scripts/privilege_broker_daemon.py'
+      - 'scripts/enable_auth0_sudo_onboarding.py'
       - 'src/ai_lab_gateway/server.py'
       - 'src/ai_lab_gateway/control.py'
       - 'src/ai_lab_gateway/ssh_exec.py'
       - 'src/ai_lab_gateway/device_code_linux_plan.py'
       - 'tests/test_auth0_sudo_onboarding.py'
+      - 'tests/test_enable_auth0_sudo_onboarding.py'
       - 'tests/test_local_prepare_scoped_sudo.py'
       - 'tests/test_one_command_installer.py'
       - '.github/workflows/one-command-auth0-sudo.yml'
@@ -35,7 +37,7 @@ jobs:
       - name: POSIX installer and Python syntax
         run: |
           sh -n scripts/install_ai_lab_device.sh
-          python -m py_compile scripts/ai_lab_prepare_linux_target.py scripts/install_target_privexec.py scripts/ai-lab-target-privexec scripts/privilege_broker_daemon.py
+          python -m py_compile scripts/ai_lab_prepare_linux_target.py scripts/install_target_privexec.py scripts/ai-lab-target-privexec scripts/privilege_broker_daemon.py scripts/enable_auth0_sudo_onboarding.py
       - name: Integrated pairing/installer/root transport and narrow sudo unit tests
         env:
           PYTHONPATH: src
@@ -61,6 +63,7 @@ jobs:
           PYTHONPATH: src
         run: |
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_auth0_sudo_onboarding.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_enable_auth0_sudo_onboarding.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privexec_install.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privexec.py -v
 
