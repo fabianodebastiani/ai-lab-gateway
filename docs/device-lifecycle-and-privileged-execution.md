@@ -227,6 +227,31 @@ be described as positive authorized root E2E verified. The single-use
 mechanism is separate from the three access profiles; later 15min–24h
 and opt-in unrestricted modes and offline revocation are still pending.
 
+## 2026-10-16 — independent privileged consent need not use old web panel
+
+The user does not want the old `/approvals` website to become the
+mandatory interface for Linux sudo supervision. The original management
+UI was deferred for MVP; a narrower password/TOTP approvals page was
+subsequently implemented and deployed, but that does **not** make it a
+permanent UI requirement. The authentication and authorization boundaries
+matter, not the panel itself.
+
+**Immediate approved design option (code-only, NOT yet live):** after
+ChatGPT/Auth0 requests a fixed target operation, the **original
+out-of-band `ubuntu` administrative console** of the Gateway can
+explicitly approve an unexpired pending request with the exact request
+ID, device ID and allowlisted command. This is separate from the ChatGPT
+MCP and regular device SSH identities. The broker issues a signed
+one-use voucher only after that independent root-console approval.
+[Draft PR #10](https://github.com/fabianodebastiani/ai-lab-gateway/pull/10)
+includes implementation and synthetic CI tests, plus a one-file
+reversible broker hotfix script; **do not claim deployed before the
+administrator runs it**. The existing web approval mechanism remains
+unchanged for legacy operations. In future prefer independent
+Auth0-based step-up bound to the specific device/operation without
+requiring a separate legacy admin website. Ordinary Auth0 login or
+a model/tool confirmation alone is not a second independent approval.
+
 ## Publication discipline
 
 This file is the canonical cross-feature contract. When any connected
