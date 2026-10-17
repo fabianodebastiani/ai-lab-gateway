@@ -152,16 +152,7 @@ sys.exit(0 if digest == sys.argv[2] else 1)
         printf '%s\n' "AI Lab: hash de preparação local incorreto." >&2
         exit 6
     fi
-    sudo -- /usr/bin/python3 "$helper"
-    home="$(getent passwd ai-gateway | awk -F: '{print $6}')"
-    if [ "$home" != "/home/ai-gateway" ]; then
-        printf '%s\n' "AI Lab: diretório inesperado para usuário Restrito." >&2
-        exit 7
-    fi
-    target_id="$(id -u ai-gateway)"
-    sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.cache/ai-lab-gateway"
-    sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$client" "$home/.cache/ai-lab-gateway/device_code_pair_linux.py"
-    sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$gateway_pin" "$home/.cache/ai-lab-gateway/gateway_host_key.pub"
+    # Verify every downloaded artifact BEFORE any privileged local mutation.
     local_cli="$directory/ailab"
     download "$LOCAL_CLI_URL" "$local_cli"
     if ! python3 -c '
@@ -173,9 +164,33 @@ sys.exit(0 if digest == sys.argv[2] else 1)
         printf '%s\n' "AI Lab: hash do gestor local de conexão incorreto." >&2
         exit 8
     fi
+    # Reject obvious human shortcut conflicts before creating a Linux account.
+    if [ -L "$HOME/.local" ] || [ -L "$HOME/.local/bin" ]; then
+        printf '%s\n' "AI Lab: diretório local é link simbólico; não vou instalar o atalho." >&2
+        exit 9
+    fi
+    if [ -e "$HOME/.local/bin/ailab" ] || [ -L "$HOME/.local/bin/ailab" ]; then
+        printf '%s\n' "AI Lab: atalho ailab existente. Não alterarei o Linux até revisar o conflito." >&2
+        exit 9
+    fi
+    sudo -- /usr/bin/python3 "$helper"
+    home="$(getent passwd ai-gateway | awk -F: '{print $6}')"
+    if [ "$home" != "/home/ai-gateway" ]; then
+        printf '%s\n' "AI Lab: diretório inesperado para usuário Restrito." >&2
+        exit 7
+    fi
+    target_id="$(id -u ai-gateway)"
+    sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.cache/ai-lab-gateway"
+    sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$client" "$home/.cache/ai-lab-gateway/device_code_pair_linux.py"
+    sudo -- install -o ai-gateway -g ai-gateway -m 0600 "$gateway_pin" "$home/.cache/ai-lab-gateway/gateway_host_key.pub"
     sudo -- install -d -o ai-gateway -g ai-gateway -m 0700 "$home/.local/bin"
     sudo -- install -o ai-gateway -g ai-gateway -m 0700 "$local_cli" "$home/.local/bin/ailab"
     printf '%s\n' "AI Lab: gestor local verificado e instalado no usuário Restrito: $home/.local/bin/ailab"
+    sudo -u ai-gateway -H -- env "XDG_RUNTIME_DIR=/run/user/$target_id" \
+        /usr/bin/python3 "$home/.cache/ai-lab-gateway/device_code_pair_linux.py" \
+        --base-url https://gateway.debasti.com \
+        --trusted-gateway-host-key "$home/.cache/ai-lab-gateway/gateway_host_key.pub" "$@"
+    # Only publish the human convenience shortcut after successful pairing.
     # Human-facing wrapper in the ORIGINAL user's own home. This wrapper
     # ONLY drops to the pre-existing, independently paired ai-gateway identity
     # and accepts a small fixed local command set. No privileged shell.
@@ -217,8 +232,4 @@ AI_LAB_HUMAN_CLI_WRAPPER
     printf '%s\n' "AI Lab: comando local instalado: $shortcut"
     printf '%s\n' "AI Lab: depois do pareamento use esse comando com status, connect, disconnect ou persistent on/off."
     printf '%s\n' "AI Lab: sudo supervisionado NÃO é habilitado pelo pareamento."
-    sudo -u ai-gateway -H -- env "XDG_RUNTIME_DIR=/run/user/$target_id" \
-        /usr/bin/python3 "$home/.cache/ai-lab-gateway/device_code_pair_linux.py" \
-        --base-url https://gateway.debasti.com \
-        --trusted-gateway-host-key "$home/.cache/ai-lab-gateway/gateway_host_key.pub" "$@"
 fi
