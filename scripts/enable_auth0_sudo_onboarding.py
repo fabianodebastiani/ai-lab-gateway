@@ -98,7 +98,7 @@ def plan(backfill_device: str | None) -> tuple[dict, dict, bytes, bytes, bytes, 
         privileges.append(ACTION)
     v2 = {"version": 2, "devices": targets["devices"],
           "allow_verified_restricted_onboarding": True}
-    return v2, updated, old_targets, old_policy, output(v2), output(updated)
+    return v2, updated, old_targets, old_policy, output(v2), (output(updated) if backfill_device is not None else old_policy)
 
 
 def fsync_dir(folder: Path):
