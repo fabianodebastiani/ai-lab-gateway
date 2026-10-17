@@ -1,6 +1,6 @@
 # Target-local one-use privileged executor — laboratory v0.1
 
-**Status (2026-10-16): DRAFT code and CI tests. No root installation on any managed Linux. No production consent/signing service exists yet.**
+**Status (2026-10-16): signed broker/transport/installer SOURCE in draft PR #10 with isolated CI tests; no target root installation or production signer activation yet.**
 
 Canonical decision: [device lifecycle and privileged execution](https://github.com/fabianodebastiani/ai-lab-gateway/blob/main/docs/device-lifecycle-and-privileged-execution.md), ADR-027, ADR-028, ADR-029, and Issue #2. The **one-use exact-command authorization is independent of the exactly three persistent access profiles**; it is not a fourth radio mode.
 
@@ -35,3 +35,84 @@ The request is a JSON object with **exactly** permit and signature fields. The p
 4. E2E test on disposable second Oracle: deny before approval; sign one consented fixed id operation; execute once; reject replay after restart; reject expired and revoked; confirm Raspberry/WSL and Gateway untouched. Only then extend to timed/indefinite profiles.
 
 Source branch must stay DRAFT until these milestones are verified. This decision preserves ADR-027's three profiles and Issue #2's operation-specific consent rather than replacing either.
+
+## Implementation update — 2026-10-16 (PR #10 draft, CI only)
+
+**What changed since v0.1:** The separate root broker now implements
+target_request -> pending -> **existing independent password/TOTP approval
+socket** -> approved -> target_voucher. Root-only issuer signs an SSHSIG
+Ed25519 voucher only when approval_method is separate_human_web_ui and the
+device is present in the root-owned **explicit allowlist**.
+The approved request is durably consumed *before* signing, and cannot sign
+twice even after failure. The approver UI displays device ID, exact fixed
+argv, OAuth subject, and duration, not a general-purpose sudo request.
+
+A feature-gated MCP tool family is in src/ai_lab_gateway/server.py:
+target_privilege_request/status/execute/revoke. These require BOTH verified
+OAuth gateway:control scope and a **separate** per-device protected policy
+action target_privilege_execute, never generic exec. The server starts with
+the feature flag OFF; production policy and services have not been changed.
+Execution uses src/ai_lab_gateway/ssh_exec.py to stream the signed voucher
+**privately over SSH stdin** to one fixed sudo executor command. The
+voucher is NOT returned to ChatGPT. The target verifies independently.
+
+Two inert local-admin installers were added:
+
+- scripts/install_target_issuer.py: **Oracle local root only**, checks the
+  protected live device registry for the chosen eligible Restricted target,
+  creates a root-only Ed25519 private signer and explicit one-device
+  targets.json allowlist. No operator approval is issued and no service
+  is restarted automatically. Private key must NEVER leave Oracle.
+- scripts/install_target_privexec.py: **target local root only**,
+  verifies the enrolled device ID, trusted approver PUBLIC-key fingerprint,
+  pin of exact root executor SHA256, root-owned paths and visudo-checked
+  no-argument sudoers allowance. It has a non-mutating --check and a
+  separate --revoke of this exact sudoers rule. It does NOT enable generic
+  sudo or install an admin SSH connection.
+
+Both install scripts are **source-only, not run on Oracle or second VM**.
+The root-only test runner uses disposable directories and synthetic keys.
+The existing root broker/approver/MCP systemd units and live device SSH
+connections are not changed by creating this draft.
+
+### Acceptance evidence
+
+GitHub Actions workflow target-privexec-lab.yml executes:
+synthetic signed voucher / eight-process replay race;
+synthetic approved-browser-socket -> broker one-use signer -> target
+root verifier; identity/argv/device restrictions and expiry;
+trusted-root signer installer tests, root-owned target installer
+visudo/rollback tests, fixed SSH argv/stdin transport tests. These
+synthetic tests do **not** prove live human consent or deployment.
+
+### Live deployment gate (explicit human administrator step)
+
+1. Original Oracle administrator reviews code/source pin and takes backup
+   of the broker, approver, MCP, OAuth policy and root registry. Run
+   issuer installer **--check** on the Oracle, then manually approve its
+   --apply. Trust its private key only in root-owned /etc. Ensure the
+   root allowlist names exactly the second Oracle test VM. Deploy and
+   restart only the reviewed broker/approver/MCP code with recovery path.
+   New MCP tools remain feature-disabled and inaccessible until the
+   per-target protected OAuth rule is separately authorized.
+2. Copy ONLY the Oracle signing PUBLIC key and verify its fingerprint by
+   an independent trusted channel. Run the target installer --check,
+   then --apply through the **second VM's original ubuntu administrator**
+   account; never over restricted MCP account. Original root recovery
+   remains intact; no SSH keys/tunnels should be rotated.
+3. Enable the dedicated target_privilege_execute action only for the
+   authorized Auth0 subject + second VM. Human uses real existing HTTPS
+   approval site with password and a fresh TOTP code for one
+   root-identity-check request. ChatGPT calls target_privilege_execute;
+   verify result 0, replay denied, unauthorized/expired/revoked
+   denied, protected audit and recovery. Check legacy connections.
+4. Early revocation of a voucher **after issuance** on an offline Linux
+   requires an additional target revocation channel and is NOT YET
+   implemented. Existing request revocation works *before* issuance.
+   The laboratory voucher TTL is capped at 300 seconds. Do not claim
+   immediate revocation of an already signed offline credential.
+   Partial/Unrestricted profile enforcement remains future work.
+
+**No deployment claim** may be made from this draft. Do not blindly
+execute shell snippets or sudoers changes from ChatGPT. Show the user
+the exact signed/verifiable installation command and its risk when ready.
