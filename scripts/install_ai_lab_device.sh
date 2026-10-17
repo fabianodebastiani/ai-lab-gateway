@@ -183,14 +183,10 @@ sys.exit(0 if digest == sys.argv[2] else 1)
     cat > "$wrapper" <<'AI_LAB_HUMAN_CLI_WRAPPER'
 #!/bin/sh
 set -eu
-case "${1:-}:${2:-}:${3:-}" in
-    status::|connect::|disconnect::|persistent:on:|persistent:off:) ;;
+case "$#:${1:-}:${2:-}" in
+    1:status:|1:connect:|1:disconnect:|2:persistent:on|2:persistent:off) ;;
     *) printf '%s\n' 'AI Lab: uso: ailab status|connect|disconnect|persistent on|persistent off' >&2; exit 2 ;;
 esac
-if [ "$#" -eq 0 ] || [ "$#" -gt 2 ]; then
-    printf '%s\n' 'AI Lab: argumentos não permitidos.' >&2
-    exit 2
-fi
 if ! command -v sudo >/dev/null 2>&1; then
     printf '%s\n' 'AI Lab: sudo local é necessário para alternar para o usuário Restrito.' >&2
     exit 3
