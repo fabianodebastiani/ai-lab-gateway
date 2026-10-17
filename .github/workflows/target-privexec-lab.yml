@@ -6,11 +6,19 @@ on:
     paths:
       - "scripts/ai-lab-target-privexec"
       - "tests/test_target_privexec.py"
+      - "tests/test_target_privilege_issuer.py"
+      - "scripts/privilege_broker_daemon.py"
+      - "scripts/approval_web.py"
+      - "src/ai_lab_gateway/server.py"
       - ".github/workflows/target-privexec-lab.yml"
   pull_request:
     paths:
       - "scripts/ai-lab-target-privexec"
       - "tests/test_target_privexec.py"
+      - "tests/test_target_privilege_issuer.py"
+      - "scripts/privilege_broker_daemon.py"
+      - "scripts/approval_web.py"
+      - "src/ai_lab_gateway/server.py"
       - ".github/workflows/target-privexec-lab.yml"
 
 permissions:
@@ -26,10 +34,12 @@ jobs:
         run: sudo -n id -u | grep -qx 0
       - name: Confirm executor syntax and no startup behavior
         run: |
-          python3 -m py_compile scripts/ai-lab-target-privexec
+          python3 -m py_compile scripts/ai-lab-target-privexec scripts/privilege_broker_daemon.py scripts/approval_web.py src/ai_lab_gateway/server.py
           grep -q "NOT ACTIVE BY INSTALLING THIS FILE" scripts/ai-lab-target-privexec
       - name: Run isolated negative tests and one-success concurrent replay
         run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privexec.py -v
+      - name: Simulate independent approved TOTP broker callback then verify signed one-use root voucher
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privilege_issuer.py -v
       - name: Verify no executor installed to host sudoers
         run: |
           test ! -e /etc/sudoers.d/ai-lab-target-privexec
