@@ -193,6 +193,58 @@ def privilege_revoke(request_id: str) -> dict:
     return broker_call("revoke", identity.subject, request_id=request_id)
 
 
+# Feature-gated, independent privilege API. Never inherit normal exec grant.
+# The root broker additionally refuses every target until a root-owned
+# explicit device allowlist and separately protected signer are installed.
+if os.environ.get("AI_LAB_TARGET_PRIVILEGE_MCP_ENABLED") == "1":
+    def _authorize_target_privilege(device_id: str):
+        identity = _verified_identity()
+        _control_plane()._authorize(
+            identity, device_id, "target_privilege_execute", "gateway:control")
+        return identity
+
+    @mcp.tool()
+    def target_privilege_request(device_id: str, operation: str,
+                                 ttl_seconds: int = 300) -> dict:
+        """Request one fixed root operation. Requires INDEPENDENT human approval."""
+        identity = _authorize_target_privilege(device_id)
+        return broker_call("target_request", identity.subject, device_id=device_id,
+                           operation=operation, ttl_seconds=ttl_seconds)
+
+    @mcp.tool()
+    def target_privilege_status(device_id: str, request_id: str) -> dict:
+        """Check signed-root request state for the same OAuth user and device."""
+        identity = _authorize_target_privilege(device_id)
+        return broker_call("status", identity.subject, device_id=device_id,
+                           request_id=request_id)
+
+    @mcp.tool()
+    def target_privilege_execute(device_id: str, request_id: str) -> dict:
+        """Consume one independently human-approved request and run exact root operation.
+
+        The cryptographic voucher travels privately from the root broker
+        to the Linux executor through SSH stdin and is never shown in ChatGPT.
+        """
+        identity = _authorize_target_privilege(device_id)
+        plane = _control_plane()
+        # The broker returns a voucher only after independent human approval.
+        issued = broker_call("target_voucher", identity.subject, device_id=device_id,
+                             request_id=request_id)
+        if not issued.get("ok"):
+            return issued
+        result = plane.execute_target_privilege(identity, device_id, issued["voucher"])
+        return {"ok": result.exit_code == 0, "status": "consumed",
+                "exit_code": result.exit_code, "stdout": result.stdout,
+                "stderr": result.stderr}
+
+    @mcp.tool()
+    def target_privilege_revoke(device_id: str, request_id: str) -> dict:
+        """Revoke an outstanding target privilege request."""
+        identity = _authorize_target_privilege(device_id)
+        return broker_call("revoke", identity.subject, device_id=device_id,
+                           request_id=request_id)
+
+
 def _authorize_device_pairing():
     """Require an explicit enrollment grant, separate from normal exec."""
     identity = _verified_identity()
