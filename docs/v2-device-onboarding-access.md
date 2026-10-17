@@ -4,6 +4,26 @@ Status (2026-10-14): approved requirements, implementation in progress.
 This supersedes any UX mockups that presented duration as multiple radio options.
 No part of this document claims a deployed enrollment API or remote sudo grant.
 
+## Canonical reconciliation — 2026-10-16
+
+**Read first:** [Linux lifecycle and privileged execution](device-lifecycle-and-privileged-execution.md).
+This specification's exactly **three access modes** remain valid. It omitted
+the earlier approved **single-use, exact-command authorization** documented
+in issue #2; that omission is corrected explicitly. A one-use root operation
+is allowed to be requested/approved **while the device stays Restricted**.
+It is *not* a fourth persistent access mode or a privilege automatically
+granted at enrollment. The root-capable component is provisioned only by a
+locally sudo-authorized, cryptographically verified bootstrap and always
+starts deny-all; normal SSH `ai-gateway` remains nonadmin.
+
+The target-side operator experience also includes a local `ailab` CLI:
+`status`, `connect`, `disconnect`, `persistent on`, `persistent off`.
+This is separate from Auth0 MCP control and from root operation approval.
+As observed in the 2026-10-16 E2E second Oracle VM, the initial
+`systemd --user` SSH unit is **transient** and not boot-persistent;
+the stable-unit conversion is planned/tested independently rather than
+assumed working. New CLI source is not evidence of deployed commands.
+
 ## Product decision — 2026-10-14: enrollment always starts restricted
 
 **Accepted decision:** Pairing a device and granting elevated Linux privileges
