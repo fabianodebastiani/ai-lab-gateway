@@ -6,6 +6,8 @@ the broker trusts only its dedicated Unix service UID to forward that identity.
 Human approvals use either the root CLI or a separately authenticated web service.\nNo arbitrary shell commands.
 """
 import argparse
+import hashlib
+import re
 import fcntl
 import json
 import os
@@ -41,6 +43,65 @@ MAX_TTL = 86400
 MAX_REQUEST_BYTES = 16384
 PENDING_TTL = 3600
 MAX_PENDING_PER_SUBJECT = 20
+
+# Target Linux one-use signing is a separate trust scope from Oracle operations.
+# Absent root-configured signing material and device allowlist => always deny.
+TARGET_ISSUER_DIR = Path("/etc/ai-lab-target-issuer")
+TARGET_ISSUER_KEY = TARGET_ISSUER_DIR / "issuer_ed25519"
+TARGET_DEVICES = TARGET_ISSUER_DIR / "targets.json"
+TARGET_NAMESPACE = "ai-lab-privexec-v1"
+TARGET_VERSION = "ai-lab-privexec-one-v1"
+TARGET_OPS = {"root-identity-check": ["/usr/bin/id", "-u"]}
+TARGET_MAX_TTL = 300
+TARGET_DEVICE_RE = re.compile(r"[a-z][a-z0-9-]{2,47}\\Z")
+
+
+def trusted_target_file(path, directory=False):
+    st = path.lstat()
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not kind(st.st_mode) or st.st_uid != 0 or st.st_gid != 0 or
+            stat.S_IMODE(st.st_mode) != (0o700 if directory else 0o600)):
+        raise PermissionError("target issuer root trust invalid")
+
+
+def target_enabled(device_id):
+    if not isinstance(device_id, str) or not TARGET_DEVICE_RE.fullmatch(device_id):
+        return False
+    try:
+        trusted_target_file(TARGET_ISSUER_DIR, True)
+        trusted_target_file(TARGET_DEVICES)
+        if TARGET_DEVICES.stat().st_size > 4096:
+            return False
+        cfg = json.loads(TARGET_DEVICES.read_text(encoding="utf8"))
+        return (type(cfg) is dict and set(cfg) == {"version", "devices"} and
+                type(cfg["version"]) is int and cfg["version"] == 1 and
+                isinstance(cfg["devices"], list) and len(cfg["devices"]) <= 25 and
+                all(isinstance(x, str) and TARGET_DEVICE_RE.fullmatch(x)
+                    for x in cfg["devices"]) and device_id in cfg["devices"])
+    except (OSError, ValueError, PermissionError, TypeError):
+        return False
+
+
+def sign_target_permit(permit):
+    # This call is permitted ONLY after independent human-verified approval.
+    trusted_target_file(TARGET_ISSUER_DIR, True)
+    trusted_target_file(TARGET_ISSUER_KEY)
+    if TARGET_ISSUER_KEY.stat().st_size > 4096:
+        raise PermissionError("invalid issuer private key size")
+    canonical = (json.dumps(permit, sort_keys=True, separators=(",", ":"),
+                            ensure_ascii=True) + "\n").encode("ascii")
+    signed = subprocess.run(
+        ["/usr/bin/ssh-keygen", "-Y", "sign", "-n", TARGET_NAMESPACE,
+         "-f", str(TARGET_ISSUER_KEY)],
+        input=canonical, capture_output=True, timeout=8, check=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+    signature = signed.stdout.decode("ascii")
+    if (len(signature) > 4000 or
+            not signature.startswith("-----BEGIN SSH SIGNATURE-----\n") or
+            not signature.endswith("-----END SSH SIGNATURE-----\n")):
+        raise PermissionError("issuer returned invalid signature")
+    return {"permit": permit, "signature": signature}
+
 
 def audit(action, outcome, request_id=None, subject=None):
     event = {"time": int(time.time()), "action": action, "outcome": outcome,
