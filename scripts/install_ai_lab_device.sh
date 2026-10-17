@@ -14,8 +14,8 @@ CLIENT_SHA256="8c258ae6f23dc3bd00a9809443acfea9f1edf0861cf1b82ee3a01af8f0e7645b"
 CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${RELEASE_COMMIT}/scripts/device_code_pair_linux.py"
 # Fixed, independently checksum-verified *local Linux* preparation helper.
 # This helper sets up an ordinary, no-sudo ai-gateway account on fresh Ubuntu.
-LOCAL_SETUP_COMMIT="93511869dc10ce7018d00400ce461b9d6acdd824"
-LOCAL_SETUP_SHA256="71a8f81edb2095f72b9f71589f74de36c02e5a3064358931cb6c83d789a9fa18"
+LOCAL_SETUP_COMMIT="ea8b8b2ba948a0a1c4c0be51002edb359b18ff57"
+LOCAL_SETUP_SHA256="fe6e17929f69e74357dea9800264066d24d98d566c939538b3614c4494d07f1c"
 LOCAL_SETUP_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${LOCAL_SETUP_COMMIT}/scripts/ai_lab_prepare_linux_target.py"
 # Non-root local CLI, pinned independently from the pairing client.
 LOCAL_CLI_COMMIT="3c7d67334655338ffb0a003abf16a65fc963a150"
