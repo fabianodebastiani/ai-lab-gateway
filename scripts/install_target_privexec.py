@@ -92,6 +92,23 @@ def mkdir_root(path: Path, created: list[Path]) -> None:
     created.append(path)
 
 
+def ensure_executor_parent(created_dirs: list[Path]) -> None:
+    """Ubuntu minimal images may omit /usr/local/libexec entirely.
+
+    Allow one root-owned directory creation only beneath the already secure
+    /usr/local parent; never follow attacker-supplied symlinks.
+    """
+    directory = EXECUTOR_PATH.parent
+    if directory.exists() or directory.is_symlink():
+        parent_secure(directory)
+        return
+    parent_secure(directory.parent)
+    directory.mkdir(mode=0o755)
+    os.chown(directory, 0, 0)
+    os.chmod(directory, 0o755)
+    created_dirs.append(directory)
+
+
 def write_exclusive(path: Path, data: bytes, mode: int, created: list[Path]) -> None:
     parent_secure(path.parent)
     if path.exists() or path.is_symlink():
@@ -120,15 +137,21 @@ def sudoers_text() -> bytes:
 def apply(device_id: str, issuer: Path, fingerprint: str, source: Path,
           *, check_only: bool) -> str:
     public, blob = validate(device_id, issuer, fingerprint, source)
+    # The --check mode is deliberately read-only, including the preflight
+    # of privileged destination parents. An absent libexec is supported.
+    parent_secure(SUDOERS.parent)
+    if EXECUTOR_PATH.parent.exists() or EXECUTOR_PATH.parent.is_symlink():
+        parent_secure(EXECUTOR_PATH.parent)
+    else:
+        parent_secure(EXECUTOR_PATH.parent.parent)
     if check_only:
         return "DRY_RUN_OK (no files or privileges changed)"
     if os.geteuid() != 0:
         raise PermissionError("apply requires original local administrator sudo")
-    parent_secure(EXECUTOR_PATH.parent)
-    parent_secure(SUDOERS.parent)
     created_files: list[Path] = []
     created_dirs: list[Path] = []
     try:
+        ensure_executor_parent(created_dirs)
         mkdir_root(CONFIG, created_dirs)
         mkdir_root(STATE, created_dirs)
         mkdir_root(STATE / "used", created_dirs)
