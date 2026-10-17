@@ -92,6 +92,7 @@ class FirstRunInstallerTests(unittest.TestCase):
             path = Path(tmp) / "ailab"
             path.write_text(wrapper)
             for args in ([], ["--sudo"], ["status", "--root"],
+                         ["status", ""], ["connect", ""],
                          ["persistent", "all"], ["connect", "shell"],
                          ["persistent", "on", "other"]):
                 with self.subTest(args=args):
