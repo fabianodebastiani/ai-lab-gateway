@@ -208,7 +208,7 @@ class SignedHumanApprovalIntegration(unittest.TestCase):
         issued = self.voucher(rid)
         self.assertTrue(issued["ok"], issued)
         raw = json.dumps(issued["voucher"]).encode("utf8")
-        self.assertEqual(target.execute_packet(raw), (0, "0\\n"))
+        self.assertEqual(target.execute_packet(raw), (0, "0\n"))
         self.assertEqual(self.voucher(rid)["error"], "not_approved")
         with self.assertRaises(FileExistsError):
             target.execute_packet(raw)
