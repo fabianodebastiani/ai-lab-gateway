@@ -1,0 +1,91 @@
+name: Linux one-command restricted installer (isolated)
+on:
+  push:
+    branches: [feat/linux-one-command-v1]
+    paths:
+      - 'scripts/install_ai_lab_device.sh'
+      - 'scripts/publish_linux_bootstrap.py'
+      - 'tests/test_publish_linux_bootstrap.py'
+      - 'tests/test_one_command_installer.py'
+      - 'tests/test_fresh_ubuntu_restricted_smoke.py'
+      - '.github/workflows/linux-first-run-lab.yml'
+  pull_request:
+    paths:
+      - 'scripts/install_ai_lab_device.sh'
+      - 'scripts/publish_linux_bootstrap.py'
+      - 'tests/test_publish_linux_bootstrap.py'
+      - 'tests/test_one_command_installer.py'
+      - 'tests/test_fresh_ubuntu_restricted_smoke.py'
+      - '.github/workflows/linux-first-run-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-installer-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: POSIX shell syntax and offline preflight/wrapper acceptance
+        run: python -m unittest discover -s tests -p test_one_command_installer.py -v
+      - name: Explicitly forbid remote root provisioning during pairing
+        run: |
+          ! grep -Eq 'sudo[[:space:]]+(-n[[:space:]]+)?(bash|sh)([[:space:]]|$)|NOPASSWD:[[:space:]]*ALL|curl[[:space:]]*\|[[:space:]]*sudo' scripts/install_ai_lab_device.sh
+
+  pairing-and-cli-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated pairing-test dependencies
+        run: python -m pip install --disable-pip-version-check cryptography==46.0.4
+      - name: "Regression: existing one-code pairing, installer, SSH plans and local ailab CLI"
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p 'test_device_code*.py' -q
+          python -m unittest discover -s tests -p 'test_device_code_local_cli.py' -q
+
+  fresh-ubuntu-local-restricted-smoke:
+    # GitHub-hosted runner is destroyed afterward. No oracle VM, no Auth0,
+    # no production SSH keys or gateway host are touched.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install lab API test dependencies (not on target Linux)
+        run: python -m pip install --disable-pip-version-check cryptography==46.0.4
+      - name: Confirm no preexisting target account on disposable runner
+        run: |
+          test -d /run/systemd/system
+          ! id ai-gateway >/dev/null 2>&1
+          test "$(id -u)" != 0
+      - name: Real local admin setup + isolated loopback one-code pairing
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p test_fresh_ubuntu_restricted_smoke.py -v
+
+  public-bootstrap-publisher-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check immutable bootstrap publisher (never apply)
+        run: python -m unittest discover -s tests -p test_publish_linux_bootstrap.py -v
+      - name: Check publisher cannot accidentally ship root wildcard sudo
+        run: |
+          ! grep -Eq 'NOPASSWD:[[:space:]]*ALL|curl[[:space:]]*\|[[:space:]]*sudo' scripts/publish_linux_bootstrap.py
