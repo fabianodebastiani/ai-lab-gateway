@@ -67,6 +67,10 @@ jobs:
           test -d /run/systemd/system
           ! id ai-gateway >/dev/null 2>&1
           test "$(id -u)" != 0
+      - name: Verify no real Gateway endpoint is used in smoke harness
+        run: |
+          grep -Fq "127.0.0.1" tests/test_fresh_ubuntu_restricted_smoke.py
+          ! grep -Fq "gateway.debasti.com" tests/test_fresh_ubuntu_restricted_smoke.py
       - name: Real local admin setup + isolated loopback one-code pairing
         env:
           PYTHONPATH: src
