@@ -25,7 +25,11 @@ PORT_START = 11000
 PORT_END = 11999
 SSH_USER = "ai-gateway"
 KEY_ROOT = "/etc/ai-lab-gateway/device-code-keys"
-SSH_ACTIONS = ("status", "exec", "read_file", "write_file")
+# This is an eligibility to REQUEST a human-approved exact root operation,
+# never a privileged command. The broker and root verifier still fail closed
+# without separately authenticated, one-use human authorization.
+SSH_ACTIONS = ("status", "exec", "read_file", "write_file",
+               "target_privilege_execute")
 
 
 def _candidate_identity(candidate: dict) -> dict:
