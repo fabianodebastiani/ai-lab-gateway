@@ -6,6 +6,8 @@ on:
     paths:
       - "scripts/ai-lab-target-privexec"
       - "tests/test_target_privexec.py"
+      - "tests/test_approval_web.py"
+      - "tests/test_privilege_broker.py"
       - "tests/test_target_privilege_transport.py"
       - "src/ai_lab_gateway/ssh_exec.py"
       - "src/ai_lab_gateway/control.py"
@@ -22,6 +24,8 @@ on:
     paths:
       - "scripts/ai-lab-target-privexec"
       - "tests/test_target_privexec.py"
+      - "tests/test_approval_web.py"
+      - "tests/test_privilege_broker.py"
       - "tests/test_target_privilege_transport.py"
       - "src/ai_lab_gateway/ssh_exec.py"
       - "src/ai_lab_gateway/control.py"
@@ -60,6 +64,10 @@ jobs:
         run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_issuer_install.py -v
       - name: Verify SSH transport never places a signed permit in process arguments
         run: /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privilege_transport.py -v
+      - name: Verify original Oracle root broker and independent browser approval did not regress
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest==8.4.2
+          python3 -m pytest -q tests/test_privilege_broker.py tests/test_approval_web.py
       - name: Verify no executor installed to host sudoers
         run: |
           test ! -e /etc/sudoers.d/ai-lab-target-privexec
