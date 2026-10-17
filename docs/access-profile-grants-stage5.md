@@ -82,3 +82,35 @@ Added [profile_lease_state.py](../src/ai_lab_gateway/profile_lease_state.py) and
 6. **No deployment approvals implied.** Keep PR #12 Draft and separated from PR #10. Audit, replay, restart/rollback and root enforcer integration remain required before enabling anything on the second Oracle.
 
 **Next:** independently human-approved issuer for short leases and root-controlled renewal after checking the current profile/revocation; prototype a minimal signed/verified grant installation and audited metadata-only MCP status before connecting to any privileged executor.
+
+
+## 2026-10-17 — Increment 3: independent-approval issuer + device-signed renewal (source only)
+
+[profile_lease_issuer_lab.py](../src/ai_lab_gateway/profile_lease_issuer_lab.py) and [test_profile_lease_issuer_lab.py](../tests/test_profile_lease_issuer_lab.py) introduce a **separate, isolated** signing and renewal prototype. It does not modify the production privilege broker, any Linux executor, MCP scopes, sudoers or device configuration.
+
+### Protocol and state transitions
+
+1. A separately held **independent human-approval Ed25519 key** signs a short-lived, exact Partial-profile consent assertion containing the device, authenticated user, approver identity, duration, fixed diagnostic capability, decision nonce, confirmation and time window (max 120 seconds).
+2. The lab issuer checks that **signed assertion**, bound device, caller-supplied authenticated subject and trusted verifier key. It rejects approvals with the wrong signature, extra privileges, an unrecognized profile, stale time or a repeated decision ID. A code caller cannot simply claim that a chat message constituted human approval.
+3. Only then does the issuer sign a separate Partial-profile grant. The issuer has a different Ed25519 private key from the approval authority and device.
+4. For each lease renewal, the device submits a fresh **request signed by a pinned device-specific Ed25519 key**, bound to the grant, subject, generation, short-lived request ID, diagnostic capability, boot ID and timestamp. A valid signed request proves key possession, but **does not independently prove the actual kernel boot ID**; the protected executor on the target must check that it matches the target's actual boot ID.
+5. A root-only SQLite ledger rechecks the stored, signed original grant, expiry and current revocation status before signing each lease, then atomically consumes the device request nonce. Concurrent identical requests yield only one successful issuance. A new nonce can renew a still-valid grant, but never past its parent expiry.
+6. Revoking a grant or revoking a device generation prevents **subsequent renewal**. Independently human-approved new grants receive a strictly higher generation than revoked generations. The issuer persists state with SQLite transactions and FULL synchronous mode.
+
+**Strict scope:** the issuer only permits Partial with diagnostic root-identity-check metadata; it does not execute that command. Restricted remains the default and Unrestricted is disabled. The existing single-use sudo flow from PR #10 is unaffected.
+
+### Guarantees deliberately NOT claimed
+
+- The signer for independent human consent currently exists **only as a disposable synthetic CI key**. There is no real human Auth0/terminal consent flow for profiles yet; cryptographic validation of a synthetic approval is not evidence that a person actually approved it.
+- Authenticated OAuth subject is a trusted integration input to the issuer in this prototype. Its provenance must be validated at the eventual MCP boundary; caller-supplied chat text cannot be accepted.
+- The target-specific device signing key for renewal is also synthetic. Future target key provisioning, approved host binding and compromise/recovery procedures are pending.
+- **Offline revocation is not instantaneous:** a previously signed lease is still locally valid until it expires (up to 300 seconds), unless the target receives a separate valid revocation update. The issuer cannot reach backwards and invalidate it merely by changing the SQLite ledger. CI includes a target-local demonstration of this exact limitation.
+- SQLite FULL synchronous transactions do not protect a reverted disk snapshot with a simultaneously rolled-back clock. A stronger trusted-time/recovery architecture is still required.
+- No root shell, package-management operation, generic sudo or broad administrative access is exposed. A signed renewal lease is NOT an independently usable root voucher.
+- This lab issuer is **not deployed**, lacks a production service/IPC/authenticated approval adapter, and has no ability to create or update real device privileges.
+
+### Acceptance strategy
+
+The GitHub Actions workflow includes a third isolated job for this issuer. It tests independent approval signatures, wrong device/subject, device challenge, grant renewal, nonces after process reopening and under eight concurrent workers, monotonic revocation, issuer clock rollback, and full cryptographic grant + lease verification against synthetic root-local target state. Root filesystem tests run only on disposable Ubuntu CI runners.
+
+**Next increment:** review production-independent consent integration and safe target boot/key attestation, audit and recovery; design authenticated local revocation delivery and lease renewal transport as source-only, then consider a supervised disposable-VM deployment only after all remaining PR #10 security checks are closed.
