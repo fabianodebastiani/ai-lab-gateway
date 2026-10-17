@@ -183,7 +183,8 @@ def dispatch(message):
             op = message.get("operation")
             ttl = message.get("ttl_seconds")
             if (set(message) != {"action", "subject", "device_id", "operation", "ttl_seconds"}
-                    or not target_enabled(device) or op not in TARGET_OPS
+                    or not target_enabled(device)
+                    or not isinstance(op, str) or op not in TARGET_OPS
                     or type(ttl) is not int or not 1 <= ttl <= TARGET_MAX_TTL):
                 audit("target_request", "rejected", subject=subject)
                 return {"ok": False, "error": "target_unconfigured_or_invalid"}
@@ -218,6 +219,7 @@ def dispatch(message):
         if action == "status":
             audit("status", "ok", request_id, subject)
             return {"ok": True, "request_id": request_id, "operation": entry["operation"],
+                    "device_id": entry.get("device_id"), "kind": entry.get("kind", "oracle_fixed"),
                     "status": entry["status"], "expires_at": entry.get("expires_at")}
         if action == "revoke":
             if entry["status"] in ("pending", "approved"):
@@ -349,6 +351,8 @@ def approval_dispatch(message):
                  "subject": item["subject"], "device_id": item.get("device_id"),
                  "created_at": item["created_at"],
                  "approval_deadline": item["approval_deadline"],
+                 "kind": item.get("kind", "oracle_fixed"),
+                 "argv": item.get("argv", list(OPERATIONS.get(item["operation"], ()))),
                  "ttl_seconds": item["ttl_seconds"]}
                 for rid, item in entries.items()
                 if item.get("status") == "pending"
