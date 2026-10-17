@@ -53,7 +53,7 @@ TARGET_NAMESPACE = "ai-lab-privexec-v1"
 TARGET_VERSION = "ai-lab-privexec-one-v1"
 TARGET_OPS = {"root-identity-check": ["/usr/bin/id", "-u"]}
 TARGET_MAX_TTL = 300
-TARGET_DEVICE_RE = re.compile(r"[a-z][a-z0-9-]{2,47}\\Z")
+TARGET_DEVICE_RE = re.compile(r"[a-z][a-z0-9-]{2,47}\Z")
 
 
 def trusted_target_file(path, directory=False):
