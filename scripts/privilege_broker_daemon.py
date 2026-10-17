@@ -235,7 +235,9 @@ def dispatch(message):
             if entry.get("kind") != "target_single_use":
                 return {"ok": False, "error": "wrong_request_kind"}
             if (entry["status"] != "approved"
-                    or entry.get("approval_method") != "separate_human_web_ui"
+                    or entry.get("approval_method") not in (
+                        "separate_human_web_ui",
+                        "separate_human_root_console")
                     or not target_enabled(entry.get("device_id"))):
                 audit("target_voucher", "not_approved", request_id, subject)
                 return {"ok": False, "error": "not_approved"}
@@ -286,14 +288,18 @@ def dispatch(message):
         audit(str(action), "unsupported", request_id, subject)
         return {"ok": False, "error": "unsupported_action"}
 
-def admin(command, request_id=None):
+def admin(command, request_id=None, *, expected_device=None, expected_operation=None):
     if command == "list":
         with locked():
             entries = load()
             out = [
                 {"request_id": rid, "operation": e["operation"],
                  "status": e["status"], "created_at": e["created_at"],
-                 "approval_deadline": e["approval_deadline"], "subject": e["subject"]}
+                 "approval_deadline": e["approval_deadline"], "subject": e["subject"],
+                 "kind": e.get("kind", "oracle_fixed"),
+                 "device_id": e.get("device_id", "oracle-gateway"),
+                 "argv": e.get("argv", list(OPERATIONS.get(e["operation"], ()))),
+                 "ttl_seconds": e["ttl_seconds"]}
                 for rid, e in entries.items() if e["status"] == "pending"]
         print(json.dumps(out, indent=2))
         return 0
@@ -303,15 +309,30 @@ def admin(command, request_id=None):
         if not entry or entry["status"] != "pending":
             print("DENIED: no pending request", file=sys.stderr)
             return 77
+        if command == "approve_target":
+            if (entry.get("kind") != "target_single_use"
+                    or entry.get("device_id") != expected_device
+                    or entry.get("operation") != expected_operation
+                    or expected_operation != "root-identity-check"
+                    or not target_enabled(expected_device)
+                    or entry.get("argv") != TARGET_OPS["root-identity-check"]):
+                audit("admin_approve_target", "wrong_device_or_operation", request_id)
+                print("DENIED: target or exact operation mismatch", file=sys.stderr)
+                return 77
+        elif command == "approve" and entry.get("kind") == "target_single_use":
+            print("DENIED: target approvals require explicit device/operation CLI", file=sys.stderr)
+            return 77
         now = int(time.time())
         if now >= entry["approval_deadline"]:
             entry["status"] = "expired"
             save(entries)
             return 77
-        entry["status"] = "approved" if command == "approve" else "denied"
-        if command == "approve":
+        entry["status"] = "approved" if command in ("approve", "approve_target") else "denied"
+        if command in ("approve", "approve_target"):
             entry["approved_at"] = now
             entry["expires_at"] = now + entry["ttl_seconds"]
+            if command == "approve_target":
+                entry["approval_method"] = "separate_human_root_console"
         save(entries)
         audit("admin_" + command, "ok", request_id, entry["subject"])
         print(json.dumps({"request_id": request_id, "status": entry["status"],
@@ -464,13 +485,24 @@ def main():
     group.add_argument("--serve", action="store_true")
     group.add_argument("--list", action="store_true")
     group.add_argument("--approve")
+    group.add_argument("--approve-target")
     group.add_argument("--deny")
+    parser.add_argument("--expected-device")
+    parser.add_argument("--expected-operation")
     args = parser.parse_args()
     if args.serve:
         daemon()
         return 0
     if args.list:
         return admin("list")
+    if args.approve_target:
+        if not args.expected_device or not args.expected_operation:
+            parser.error("--approve-target requires --expected-device and --expected-operation")
+        return admin("approve_target", args.approve_target,
+                     expected_device=args.expected_device,
+                     expected_operation=args.expected_operation)
+    if args.expected_device or args.expected_operation:
+        parser.error("target expectations are only valid with --approve-target")
     if args.approve:
         return admin("approve", args.approve)
     return admin("deny", args.deny)
