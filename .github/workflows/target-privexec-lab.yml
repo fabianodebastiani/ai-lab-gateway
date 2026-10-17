@@ -1,0 +1,36 @@
+name: Target privileged executor (synthetic isolated root lab)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/ai-lab-target-privexec"
+      - "tests/test_target_privexec.py"
+      - ".github/workflows/target-privexec-lab.yml"
+  pull_request:
+    paths:
+      - "scripts/ai-lab-target-privexec"
+      - "tests/test_target_privexec.py"
+      - ".github/workflows/target-privexec-lab.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-signed-voucher:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify only disposable runner has root
+        run: sudo -n id -u | grep -qx 0
+      - name: Confirm executor syntax and no startup behavior
+        run: |
+          python3 -m py_compile scripts/ai-lab-target-privexec
+          grep -q "NOT ACTIVE BY INSTALLING THIS FILE" scripts/ai-lab-target-privexec
+      - name: Run isolated negative tests and one-success concurrent replay
+        run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privexec.py -v
+      - name: Verify no executor installed to host sudoers
+        run: |
+          test ! -e /etc/sudoers.d/ai-lab-target-privexec
+          test ! -e /usr/local/libexec/ai-lab-target-privexec
