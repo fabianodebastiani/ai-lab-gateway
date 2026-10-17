@@ -318,3 +318,61 @@ The Gateway code update is prepared, NOT applied. Immutable source snapshot:
 
 **Never run rollout as ai-maintenance over the MCP SSH connection; it
 has no sudo and cannot be trusted for recovery.**
+
+## 2026-10-16 — Gateway rollout COMPLETE, MCP tool discovery gap
+
+Original `ubuntu@ai-lab-gateway-01` human operator ran the approved pinned
+transactional Gateway rollout, confirmed `APLICAR` at the console.
+Human terminal returned:
+
+```text
+deploy.py: OK
+PRECHECK_OK: five pinned binaries, restricted issuer, one user subject_hash=8bf59830d31e no secrets shown
+GATEWAY_TARGET_PRIVILEGE_DEPLOYED: protected policy and five files updated
+active
+active
+active
+AI_LAB_GATEWAY_ROLLOUT_COMPLETE
+```
+
+**Independent read-only LIVE MCP checks after restart:**
+- Gateway MCP `gateway_status` returns `ok` from
+  `ai-lab-gateway-01`. Services `ai-lab-gateway`,
+  `ai-lab-privilege-broker`, `ai-lab-approval-web`, and
+  `caddy` are all `active`. The HTTP `/approvals/health` endpoint
+  returns `ok`.
+- `systemctl show ai-lab-gateway -p Environment` confirms
+  `AI_LAB_TARGET_PRIVILEGE_MCP_ENABLED=1`; deployed MCP
+  `server.py` contains `target_privilege_execute`. The issuer
+  trust directory is `root:root 0700`.
+- `device_status` confirmed `ai-lab-experiments-01` **online**.
+  Live ordinary MCP `exec` as `ai-gateway` showed tunnel unit
+  `active`, empty voucher -> `PRIVEXEC_DENIED: ValueError`
+  exit code **77**, and unrestricted `sudo -n id -u` **denied**.
+- **Current ChatGPT connector exposed tool catalog is STALE.** Even
+  after the live MCP server restart, this conversation's tool surface
+  under `AI_Lab_Gateway_06` still exposes only the older
+  `privilege_request/status/execute/revoke` for **Oracle Gateway**
+  operations. The new `target_privilege_request/status/execute/revoke`
+  tools are *registered on the live server* but not yet discoverable
+  or callable through the current ChatGPT connector snapshot.
+  **DO NOT** substitute the old Oracle `privilege_execute` for a
+  target Linux request, fabricate a request id, bypass Auth0 over raw
+  local sockets, or send a voucher as an ordinary model-authored SSH
+  command. Refresh/reconnect the existing AI Lab Gateway integration
+  in ChatGPT (user action; if needed, new chat) and repeat tools
+  discovery. There is **no** completed positive target root E2E test yet.
+- Signed human approval is next after tools refresh:
+  `target_privilege_request` for the second VM
+  `root-identity-check`, request reviewed on existing independent
+  HTTPS /approvals UI with fresh TOTP, then
+  `target_privilege_execute` called under the original verified
+  OAuth subject. Expect `stdout='0\\n'`, exit code 0, and
+  second attempt fails. Never solicit/password or TOTP in chat.
+- Backup location and rollback code remain recorded in the pinned
+  [PR #10] rollout utility. Keep `ubuntu` OCI recovery access open
+  until the positive E2E succeeds.
+
+**Still pending:** human-approved positive target root E2E; post-issuance
+offline revocation; Partial/Unrestricted; integration into the one-command
+installer. Three persistent profiles are unchanged.
