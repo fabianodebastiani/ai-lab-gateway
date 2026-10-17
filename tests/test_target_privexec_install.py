@@ -96,6 +96,26 @@ class LocalRootBootstrapTests(unittest.TestCase):
                       check_only=False)
         self.assertFalse(self.sudoers.exists())
 
+    def test_missing_libexec_created_and_rollback_removes_directory(self):
+        # Real Ubuntu 24.04 minimal second Oracle has no /usr/local/libexec.
+        self.installed.parent.rmdir()
+        self.assertIn("DRY_RUN_OK", self.install(apply=False))
+        self.assertFalse(self.installed.parent.exists())
+        self.assertIn("INSTALLED", self.install())
+        self.assertTrue(self.installed.parent.is_dir())
+        self.assertEqual(stat.S_IMODE(self.installed.parent.stat().st_mode), 0o755)
+        self.assertTrue(self.installed.is_file())
+
+    def test_missing_libexec_failed_visudo_does_not_leave_root_directory(self):
+        self.installed.parent.rmdir()
+        with patch.object(mod.subprocess, "run",
+                          return_value=subprocess.CompletedProcess(["visudo"], 1)):
+            with self.assertRaises(PermissionError):
+                self.install()
+        self.assertFalse(self.installed.parent.exists())
+        self.assertFalse(self.sudoers.exists())
+        self.assertFalse(self.state.exists())
+
     def test_existing_file_cannot_be_overwritten(self):
         self.install()
         installed_copy = self.installed.read_bytes()
