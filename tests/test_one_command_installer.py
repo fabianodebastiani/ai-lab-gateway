@@ -28,23 +28,52 @@ class FirstRunInstallerTests(unittest.TestCase):
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_root_executor_is_separate_opt_in_not_installed_automatically(self):
+    def test_signed_root_executor_is_prepared_after_authenticated_pairing(self):
         source = INSTALLER.read_text()
         self.assertNotIn("NOPASSWD: ALL", source)
-        self.assertNotIn("install_target_privexec.py", source)
         self.assertNotIn("sudo bash", source)
         self.assertNotIn("curl | sudo", source)
         self.assertNotIn("chmod 777", source)
-        self.assertIn("sudo -- /usr/bin/python3 \"$helper\"", source)
-        self.assertIn("sudo -u ai-gateway -H -- env", source)
-        self.assertIn("sudo supervisionado NÃO é habilitado", source)
+        self.assertIn("install_target_privexec.py", source)
+        self.assertIn('download "$PRIVEXEC_INSTALL_URL" "$exec_installer"', source)
+        self.assertIn('sha_check "$exec_installer" "$PRIVEXEC_INSTALL_SHA256"', source)
+        self.assertIn('download "$PRIVEXEC_EXEC_URL" "$exec_source"', source)
+        self.assertIn('sha_check "$exec_source" "$PRIVEXEC_EXEC_SHA256"', source)
+        self.assertIn('sudo -- /usr/bin/python3 -I "$exec_installer"', source)
+        self.assertIn('sudo -- /usr/bin/python3 "$helper"', source)
+        self.assertIn("AI_LAB_PRIVEXEC_INSTALLED_DENY_ALL", source)
+        self.assertIn("Nenhum sudo remoto/genérico", source)
+        actual_pairing = source.index('    sudo -u ai-gateway -H -- env')
+        actual_install = source.rindex('    prepare_privexec')
+        self.assertLess(actual_pairing, actual_install)
+        self.assertLess(actual_install, source.index('install -m 0700 "$wrapper" "$shortcut"'))
+
+    def test_existing_device_upgrade_does_not_pair_again(self):
+        source = INSTALLER.read_text()
+        self.assertIn(' = "--upgrade-sudo" ]; then', source)
+        self.assertLess(source.index(' = "--upgrade-sudo" ]; then'),
+                        source.index('download "$CLIENT_URL" "$client"'))
+        self.assertIn('device_id="$(sudo -- /usr/bin/cat '
+                      '/home/ai-gateway/.ssh/ai-lab-device-code/device-id)"', source)
+        self.assertNotIn("sudo usermod -aG sudo ai-gateway", source)
+
+    def test_issuer_public_key_matches_independently_known_fingerprint(self):
+        import base64
+        source = INSTALLER.read_text()
+        match = re.search(r'^ISSUER_PUBLIC_KEY="ssh-ed25519 ([A-Za-z0-9+/=]+)"$', source, re.M)
+        fp = re.search(r'^ISSUER_FINGERPRINT="(SHA256:[A-Za-z0-9+/]+)"$', source, re.M)
+        self.assertIsNotNone(match)
+        self.assertIsNotNone(fp)
+        binary = base64.b64decode(match.group(1))
+        calculated = "SHA256:" + base64.b64encode(hashlib.sha256(binary).digest()).decode().rstrip("=")
+        self.assertEqual(fp.group(1), calculated)
 
     def test_pins_remain_immutable(self):
         source = INSTALLER.read_text()
-        for name in ("RELEASE_COMMIT", "LOCAL_SETUP_COMMIT", "LOCAL_CLI_COMMIT"):
+        for name in ("RELEASE_COMMIT", "LOCAL_SETUP_COMMIT", "LOCAL_CLI_COMMIT", "PRIVEXEC_COMMIT"):
             match = re.search(r'^' + name + r'="([a-f0-9]{40})"$', source, re.M)
             self.assertIsNotNone(match, name)
-        for name in ("CLIENT_SHA256", "LOCAL_SETUP_SHA256", "LOCAL_CLI_SHA256"):
+        for name in ("CLIENT_SHA256", "LOCAL_SETUP_SHA256", "LOCAL_CLI_SHA256", "PRIVEXEC_INSTALL_SHA256", "PRIVEXEC_EXEC_SHA256"):
             match = re.search(r'^' + name + r'="([a-f0-9]{64})"$', source, re.M)
             self.assertIsNotNone(match, name)
         self.assertIn("--proto '=https' --proto-redir '=https'", source)

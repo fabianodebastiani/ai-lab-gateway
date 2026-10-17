@@ -1,0 +1,92 @@
+name: One-command Auth0 + supervised sudo integrated lab
+
+on:
+  push:
+    branches: [feat/one-command-auth0-supervised-sudo]
+  pull_request:
+    paths:
+      - 'scripts/install_ai_lab_device.sh'
+      - 'scripts/ai_lab_prepare_linux_target.py'
+      - 'scripts/install_target_privexec.py'
+      - 'scripts/ai-lab-target-privexec'
+      - 'scripts/privilege_broker_daemon.py'
+      - 'scripts/enable_auth0_sudo_onboarding.py'
+      - 'scripts/deploy_auth0_sudo_bridge.py'
+      - 'scripts/upgrade_verified_public_installer.py'
+      - 'src/ai_lab_gateway/server.py'
+      - 'src/ai_lab_gateway/control.py'
+      - 'src/ai_lab_gateway/ssh_exec.py'
+      - 'src/ai_lab_gateway/device_code_linux_plan.py'
+      - 'tests/test_auth0_sudo_onboarding.py'
+      - 'tests/test_enable_auth0_sudo_onboarding.py'
+      - 'tests/test_deploy_auth0_sudo_bridge.py'
+      - 'tests/test_upgrade_public_auth0_sudo_installer.py'
+      - 'tests/test_target_privilege_issuer.py'
+      - 'tests/test_local_prepare_scoped_sudo.py'
+      - 'tests/test_one_command_installer.py'
+      - '.github/workflows/one-command-auth0-sudo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-auth0-root-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: POSIX installer and Python syntax
+        run: |
+          sh -n scripts/install_ai_lab_device.sh
+          python -m py_compile scripts/ai_lab_prepare_linux_target.py scripts/install_target_privexec.py scripts/ai-lab-target-privexec scripts/privilege_broker_daemon.py scripts/enable_auth0_sudo_onboarding.py scripts/deploy_auth0_sudo_bridge.py scripts/upgrade_verified_public_installer.py
+      - name: Integrated pairing/installer/root transport and narrow sudo unit tests
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p test_one_command_installer.py -v
+          python -m unittest discover -s tests -p test_local_prepare_scoped_sudo.py -v
+          python -m unittest discover -s tests -p test_device_code_linux_plan.py -v
+          python -m unittest discover -s tests -p test_target_privilege_transport.py -v
+      - name: No generic remote sudo
+        run: |
+          ! grep -Eq 'NOPASSWD:[[:space:]]*ALL|curl[[:space:]]*\|[[:space:]]*sudo|sudo[[:space:]]+bash' scripts/install_ai_lab_device.sh scripts/ai_lab_prepare_linux_target.py scripts/install_target_privexec.py
+
+  root-only-synthetic-authorizations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Isolated root-owned eligibility and executor installer fixtures
+        env:
+          PYTHONPATH: src
+        run: |
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_auth0_sudo_onboarding.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_enable_auth0_sudo_onboarding.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_deploy_auth0_sudo_bridge.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_upgrade_public_auth0_sudo_installer.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privilege_issuer.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privexec_install.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privexec.py -v
+
+  fresh-ubuntu-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Isolated pairing API dependency, not a remote Gateway deployment
+        run: python -m pip install --disable-pip-version-check cryptography==46.0.4
+      - name: Existing Linux no-sudo pairing regression on disposable machine
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p test_fresh_ubuntu_restricted_smoke.py -v

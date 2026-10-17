@@ -3,8 +3,10 @@
 # One local invocation prepares the non-admin ai-gateway account with LOCAL
 # administrator sudo, verifies independently pinned artifacts, performs one-code
 # pairing and starts a Restricted SSH tunnel after separate Auth0 confirmation.
-# A per-command supervised-root executor is an OPTIONAL later local-admin step,
-# NOT silently installed or enabled by pairing. No generic sudo is provisioned.
+# The protected per-operation root executor is installed DURING this local,
+# sudo-authorized onboarding, AFTER identity pairing is independently confirmed.
+# Installation is NOT a grant: every root operation needs an independent,
+# Auth0-user/device-bound approval. No generic sudo is provisioned.
 set -eu
 
 RELEASE_COMMIT="909a66a7fa3654b9b7bf707f8c44a5f5ec39dcba"
@@ -12,13 +14,24 @@ CLIENT_SHA256="8c258ae6f23dc3bd00a9809443acfea9f1edf0861cf1b82ee3a01af8f0e7645b"
 CLIENT_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${RELEASE_COMMIT}/scripts/device_code_pair_linux.py"
 # Fixed, independently checksum-verified *local Linux* preparation helper.
 # This helper sets up an ordinary, no-sudo ai-gateway account on fresh Ubuntu.
-LOCAL_SETUP_COMMIT="93511869dc10ce7018d00400ce461b9d6acdd824"
-LOCAL_SETUP_SHA256="71a8f81edb2095f72b9f71589f74de36c02e5a3064358931cb6c83d789a9fa18"
+LOCAL_SETUP_COMMIT="ea8b8b2ba948a0a1c4c0be51002edb359b18ff57"
+LOCAL_SETUP_SHA256="fe6e17929f69e74357dea9800264066d24d98d566c939538b3614c4494d07f1c"
 LOCAL_SETUP_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${LOCAL_SETUP_COMMIT}/scripts/ai_lab_prepare_linux_target.py"
 # Non-root local CLI, pinned independently from the pairing client.
 LOCAL_CLI_COMMIT="3c7d67334655338ffb0a003abf16a65fc963a150"
 LOCAL_CLI_SHA256="4924cb0d0f1fdb9e361d4129f2d8c7045c9c1eaea093cb0ef66de9e489eb12af"
 LOCAL_CLI_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${LOCAL_CLI_COMMIT}/scripts/ailab"
+
+# Reviewed one-use root executor and installer from PR #10, immutable by SHA.
+# The issuer PUBLIC key and its fingerprint come from the independently
+# operator-verified Gateway signer, NOT an untrusted pairing response.
+PRIVEXEC_COMMIT="930b288f5cf661e2883a68e032f27ffecc78790b"
+PRIVEXEC_INSTALL_SHA256="cef19bc7bdcaf24d17051eb2d47bc5b3124b931ade0f08d6143d8e75a795788b"
+PRIVEXEC_EXEC_SHA256="d94660a4e1a925d50fd3bd2fda02408cf5300458ad0ddd85498ba4203bdea632"
+PRIVEXEC_INSTALL_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${PRIVEXEC_COMMIT}/scripts/install_target_privexec.py"
+PRIVEXEC_EXEC_URL="https://raw.githubusercontent.com/fabianodebastiani/ai-lab-gateway/${PRIVEXEC_COMMIT}/scripts/ai-lab-target-privexec"
+ISSUER_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDGVKpXLqOIGRXuYF9Z1T7HZ9Xv+CpH1b00zhTHSzckp"
+ISSUER_FINGERPRINT="SHA256:r0E6FcgCHXL0/bOarLK9gP4QQK6BFDaDiUDfUCBXW6E"
 
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -55,7 +68,7 @@ if [ "${1:-}" = "--check" ]; then
         exit 2
     fi
     printf '%s\n' "AI_LAB_INSTALL_PRECHECK_OK"
-    printf '%s\n' "Plano: sudo LOCAL para preparar sshd e usuário ai-gateway Restrito; baixar artefatos HTTPS com SHA-256; mostrar um código; aguardar aprovação independente; iniciar SSH reverso. Nenhum sudo remoto/genérico é concedido."
+    printf '%s\n' "Plano: sudo LOCAL para preparar sshd e ai-gateway; baixar e verificar artefatos; parear por código/Auth0; instalar executor root protegido após aprovação do dispositivo. Nenhum sudo remoto/genérico ou aprovação root é concedido."
     exit 0
 fi
 for cmd in python3 ssh-keygen mktemp; do
@@ -92,6 +105,71 @@ directory="$(mktemp -d "${TMPDIR:-/tmp}/ai-lab-pair.XXXXXXXX")"
 chmod 700 "$directory"
 trap 'rm -rf -- "$directory"' 0
 trap 'exit 130' 1 2 3 15
+
+sha_check() {
+    if ! python3 -c '
+import hashlib,sys
+with open(sys.argv[1],"rb") as file:
+    digest=hashlib.sha256(file.read()).hexdigest()
+sys.exit(0 if digest == sys.argv[2] else 1)
+' "$1" "$2"; then
+        printf '%s\n' "AI Lab: checksum inválido no componente root. Instalação interrompida." >&2
+        exit 12
+    fi
+}
+
+prepare_privexec() {
+    if [ "$(id -un)" = "ai-gateway" ]; then
+        printf '%s\n' "AI Lab: executor requer sudo do administrador Linux original." >&2
+        exit 11
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        printf '%s\n' "AI Lab: sudo local indisponível; executor permanece ausente." >&2
+        exit 11
+    fi
+    exec_installer="$directory/install_target_privexec.py"
+    exec_source="$directory/ai-lab-target-privexec"
+    pubkey="$directory/issuer-public-key.pub"
+    download "$PRIVEXEC_INSTALL_URL" "$exec_installer"
+    sha_check "$exec_installer" "$PRIVEXEC_INSTALL_SHA256"
+    download "$PRIVEXEC_EXEC_URL" "$exec_source"
+    sha_check "$exec_source" "$PRIVEXEC_EXEC_SHA256"
+    (umask 077; printf '%s\n' "$ISSUER_PUBLIC_KEY" > "$pubkey")
+    # Only after real pairing, the local account owns the persisted device id.
+    # A fresh sudo prompt may be needed if the code approval took > sudo TTL.
+    device_id="$(sudo -- /usr/bin/cat /home/ai-gateway/.ssh/ai-lab-device-code/device-id)"
+    if [ -z "$device_id" ]; then
+        printf '%s\n' "AI Lab: identidade pareada ausente; root não instalado." >&2
+        exit 12
+    fi
+    printf '%s\n' "AI Lab: verificando executor limitado e chave PÚBLICA de aprovação."
+    sudo -- /usr/bin/python3 -I "$exec_installer" \
+        --check --device-id "$device_id" \
+        --issuer-public-key "$pubkey" \
+        --issuer-fingerprint "$ISSUER_FINGERPRINT" \
+        --executor-source "$exec_source"
+    sudo -- /usr/bin/python3 -I "$exec_installer" \
+        --apply --device-id "$device_id" \
+        --issuer-public-key "$pubkey" \
+        --issuer-fingerprint "$ISSUER_FINGERPRINT" \
+        --executor-source "$exec_source"
+    if sudo -n -u ai-gateway -H -- sudo -n /usr/bin/id -u >/dev/null 2>&1; then
+        printf '%s\n' "AI Lab: ERRO DE SEGURANÇA: sudo genérico disponível!" >&2
+        exit 13
+    fi
+    printf '%s\n' "AI_LAB_PRIVEXEC_INSTALLED_DENY_ALL: somente autorização assinada, individual e de uso único."
+}
+
+# Existing Linux device: upgrade protected executor without re-pairing,
+# replacing SSH identities or overwriting the operator's ailab wrapper.
+if [ "${1:-}" = "--upgrade-sudo" ]; then
+    if [ "$#" -ne 1 ]; then
+        printf '%s\n' "AI Lab: --upgrade-sudo não recebe parâmetros." >&2
+        exit 2
+    fi
+    prepare_privexec
+    exit 0
+fi
 client="$directory/device_code_pair_linux.py"
 
 printf '%s\n' "AI Lab: baixando cliente de versão fixa (Git ${RELEASE_COMMIT})."
@@ -190,6 +268,10 @@ sys.exit(0 if digest == sys.argv[2] else 1)
         /usr/bin/python3 "$home/.cache/ai-lab-gateway/device_code_pair_linux.py" \
         --base-url https://gateway.debasti.com \
         --trusted-gateway-host-key "$home/.cache/ai-lab-gateway/gateway_host_key.pub" "$@"
+    # Pairing has completed, but does NOT constitute authorization for root.
+    # Original local admin explicitly authorizes this installation; separate
+    # human approvals are still required for every privileged operation.
+    prepare_privexec
     # Only publish the human convenience shortcut after successful pairing.
     # Human-facing wrapper in the ORIGINAL user's own home. This wrapper
     # ONLY drops to the pre-existing, independently paired ai-gateway identity
@@ -231,5 +313,5 @@ AI_LAB_HUMAN_CLI_WRAPPER
     fi
     printf '%s\n' "AI Lab: comando local instalado: $shortcut"
     printf '%s\n' "AI Lab: depois do pareamento use esse comando com status, connect, disconnect ou persistent on/off."
-    printf '%s\n' "AI Lab: sudo supervisionado NÃO é habilitado pelo pareamento."
+    printf '%s\n' "AI Lab: executor root instalado, NEGADO por padrão. Sudo requer aprovação humana independente via Gateway."
 fi
