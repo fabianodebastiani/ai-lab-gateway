@@ -12,6 +12,7 @@ on:
       - 'scripts/privilege_broker_daemon.py'
       - 'scripts/enable_auth0_sudo_onboarding.py'
       - 'scripts/deploy_auth0_sudo_bridge.py'
+      - 'scripts/upgrade_verified_public_installer.py'
       - 'src/ai_lab_gateway/server.py'
       - 'src/ai_lab_gateway/control.py'
       - 'src/ai_lab_gateway/ssh_exec.py'
@@ -19,6 +20,7 @@ on:
       - 'tests/test_auth0_sudo_onboarding.py'
       - 'tests/test_enable_auth0_sudo_onboarding.py'
       - 'tests/test_deploy_auth0_sudo_bridge.py'
+      - 'tests/test_upgrade_public_auth0_sudo_installer.py'
       - 'tests/test_target_privilege_issuer.py'
       - 'tests/test_local_prepare_scoped_sudo.py'
       - 'tests/test_one_command_installer.py'
@@ -40,7 +42,7 @@ jobs:
       - name: POSIX installer and Python syntax
         run: |
           sh -n scripts/install_ai_lab_device.sh
-          python -m py_compile scripts/ai_lab_prepare_linux_target.py scripts/install_target_privexec.py scripts/ai-lab-target-privexec scripts/privilege_broker_daemon.py scripts/enable_auth0_sudo_onboarding.py scripts/deploy_auth0_sudo_bridge.py
+          python -m py_compile scripts/ai_lab_prepare_linux_target.py scripts/install_target_privexec.py scripts/ai-lab-target-privexec scripts/privilege_broker_daemon.py scripts/enable_auth0_sudo_onboarding.py scripts/deploy_auth0_sudo_bridge.py scripts/upgrade_verified_public_installer.py
       - name: Integrated pairing/installer/root transport and narrow sudo unit tests
         env:
           PYTHONPATH: src
@@ -68,6 +70,7 @@ jobs:
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_auth0_sudo_onboarding.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_enable_auth0_sudo_onboarding.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_deploy_auth0_sudo_bridge.py -v
+          sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_upgrade_public_auth0_sudo_installer.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privilege_issuer.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privexec_install.py -v
           sudo -n /usr/bin/python3 -m unittest discover -s tests -p test_target_privexec.py -v
