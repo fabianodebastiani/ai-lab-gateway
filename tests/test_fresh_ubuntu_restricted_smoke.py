@@ -117,7 +117,7 @@ class FreshUbuntuRootRestrictedTests(unittest.TestCase):
                 self.assertIsNotNone(match, "client did not present one device code")
                 record = store.lookup(user_code=match.group(1),
                                       operator_subject="auth0|synthetic-ci-lookup")
-                self.assertEqual(record["status"], "proven")
+                self.assertEqual(record["status"], "awaiting_human_confirmation")
                 self.assertEqual(record["access_mode"], "restricted")
                 pair_dir = Path("/home/ai-gateway/.ssh/ai-lab-device-code")
                 for name in ("tunnel-ed25519", "device-id"):
