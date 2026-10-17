@@ -376,3 +376,84 @@ AI_LAB_GATEWAY_ROLLOUT_COMPLETE
 **Still pending:** human-approved positive target root E2E; post-issuance
 offline revocation; Partial/Unrestricted; integration into the one-command
 installer. Three persistent profiles are unchanged.
+
+## 2026-10-16 — independent root-console approval instead of legacy web panel (prepared, NOT deployed)
+
+The user prefers NOT to rely on the old HTTPS approval panel. The original
+Auth0/ChatGPT design deferred a general admin website, although a limited
+independent password+TOTP approval page was subsequently deployed and tested.
+The currently opened link returned a browser "Não encontrado" page while the
+base GET https://gateway.debasti.com/approvals independently returned HTTP 200.
+Do not insist on that UI; human independence is the security requirement,
+not any particular graphical interface.
+
+**New safe alternative implemented on the DRAFT branch ONLY:**
+
+- Original human operator logs directly into the ORIGINAL Gateway VM as
+  \`ubuntu\` (or OCI recovery console) and invokes the root-only broker CLI.
+  It explicitly names pending request ID, expected managed device ID AND
+  fixed operation \`root-identity-check\`. Neither ChatGPT MCP subject nor
+  the remote SSH \`ai-gateway\` user can invoke this root CLI (no sudo).
+- \`--approve-target\` is intentionally a **new separate CLI command**.
+  The old \`--approve\` now **rejects** target root requests, preventing
+  accidental ambiguous consent. The new operation requires all of:
+  root console, pending unexpired request, exact device and operation,
+  valid target root allowlist and exact allowlisted argv. An independent
+  \`separate_human_root_console\` approval method is persisted and audited.
+- The signed permit issuer now accepts exactly two independently human
+  approved methods: \`separate_human_web_ui\` and
+  \`separate_human_root_console\`. Ordinary model/tool execution still
+  cannot sign anything without an independently approved request.
+- Synthetic root CI tests prove wrong device/operation rejected, generic
+  CLI approval rejected, expired/denied request rejected, positive root
+  voucher signing, target root-only execution, duplicate/replay rejection.
+  Existing root broker/web suites remain passing.
+- One-file root-only broker update script
+  \`scripts/deploy_console_approval_broker.py\` has preflight, exact SHA256
+  expected old/new, protected immutable backup and rollback on service
+  failure. It changes **only**
+  \`/usr/local/libexec/ai-lab-privilege-brokerd\` and restarts
+  \`ai-lab-privilege-broker\`. It does **not** approve any request, modify
+  Auth0 policy, signer private keys, MCP server, target sudoers or tunnels.
+  All tests passed on disposable CI.
+- Pinned immutable source broker at
+  \`f0c22bcbdb6f2b9070024a8756ecffdb521c5c6c\`;
+  broker SHA256
+  \`479034afb80594138cd3c6e4a1d5f7dfad1835e3a62888cc83353727ba64d902\`.
+  Previous live broker SHA256
+  \`f75d339600c30a063cb5f556434523e658de048f708429dc1f1dc3ad441b8199\`.
+  Pinned installer source at
+  \`dcaf707a920a675b2852395b688232413d236e99\`;
+  installer SHA256
+  \`6142bb3e0ac7acee9ae97b98a4ba26acab772009198bbe5119b6b0cadb58f914\`.
+  All downloaded and verified via read-only live Gateway MCP. DO NOT use
+  mutable branches for root files.
+
+When the ORIGINAL HUMAN ADMIN explicitly authorizes deployment from the
+original \`ubuntu\` console, the appropriate flow is:
+
+1. Download those two SHA256 pinned scripts into a temporary directory
+   (broker SHA verified before use, installer SHA verified before invocation).
+2. Run installer \`--check --source path_to_new_broker\` via original
+   local \`sudo\`. Upon success, separately run \`--apply\`. Backup kept
+   in \`/var/backups/ai-lab-console-approval-broker-v1\`, original broker
+   preserved; revert via \`--rollback\` if needed. Verify broker active.
+3. If the pending request is still open, the human reviews
+   \`sudo /usr/local/libexec/ai-lab-privilege-brokerd --list\` then runs:
+
+   \`sudo /usr/local/libexec/ai-lab-privilege-brokerd --approve-target REQUEST_ID --expected-device ai-lab-experiments-01-fd3dab34 --expected-operation root-identity-check\`
+
+   Only after that real human out-of-band approval will the original OAuth
+   ChatGPT \`target_privilege_execute\` be able to consume a ONE-USE permit.
+   Repeat must be denied. Never enter operator password or TOTP in ChatGPT.
+4. If the pending request has expired, issue a **new** request via the
+   normal dedicated ChatGPT MCP \`target_privilege_request\` first; never
+   retroactively approve an expired one.
+
+**This alternative is NOT YET DEPLOYED at the time of recording.**
+The original web approval remains available for legacy Oracle operations
+until separately deprecated. Do not remove it or silently downgrade any
+existing authentication factor. Longer term use a properly separated
+Auth0-backed step-up/independent human consent UX instead of requiring the
+admin Linux terminal for every operation; normal OAuth login itself is not
+sufficient independent consent.
