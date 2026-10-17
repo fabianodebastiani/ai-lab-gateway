@@ -144,7 +144,7 @@ class FirstRunInstallerTests(unittest.TestCase):
 
     def test_human_shortcut_is_only_published_after_pairing_success(self):
         source = INSTALLER.read_text()
-        paired = source.rindex('sudo -u ai-gateway -H -- env')
+        paired = source.index('    sudo -u ai-gateway -H -- env "XDG_RUNTIME_DIR=/run/user/$target_id"')
         publish = source.index('install -m 0700 "$wrapper" "$shortcut"')
         self.assertLess(paired, publish)
         self.assertIn("Only publish the human convenience shortcut after successful pairing", source)
