@@ -6,6 +6,9 @@ on:
     paths:
       - "scripts/ai-lab-target-privexec"
       - "tests/test_target_privexec.py"
+      - "tests/test_target_privilege_transport.py"
+      - "src/ai_lab_gateway/ssh_exec.py"
+      - "src/ai_lab_gateway/control.py"
       - "scripts/install_target_issuer.py"
       - "tests/test_target_issuer_install.py"
       - "tests/test_target_privexec_install.py"
@@ -13,12 +16,15 @@ on:
       - "tests/test_target_privilege_issuer.py"
       - "scripts/privilege_broker_daemon.py"
       - "scripts/approval_web.py"
-      - "src/ai_lab_gateway/server.py"
+      - "src/ai_lab_gateway/server.py src/ai_lab_gateway/ssh_exec.py src/ai_lab_gateway/control.py"
       - ".github/workflows/target-privexec-lab.yml"
   pull_request:
     paths:
       - "scripts/ai-lab-target-privexec"
       - "tests/test_target_privexec.py"
+      - "tests/test_target_privilege_transport.py"
+      - "src/ai_lab_gateway/ssh_exec.py"
+      - "src/ai_lab_gateway/control.py"
       - "scripts/install_target_issuer.py"
       - "tests/test_target_issuer_install.py"
       - "tests/test_target_privexec_install.py"
@@ -52,6 +58,8 @@ jobs:
         run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privexec_install.py -v
       - name: Simulate Gateway root-only signer installation using synthetic registered device
         run: sudo -n /usr/bin/python3 -I -m unittest discover -s tests -p test_target_issuer_install.py -v
+      - name: Verify SSH transport never places a signed permit in process arguments
+        run: /usr/bin/python3 -I -m unittest discover -s tests -p test_target_privilege_transport.py -v
       - name: Verify no executor installed to host sudoers
         run: |
           test ! -e /etc/sudoers.d/ai-lab-target-privexec
