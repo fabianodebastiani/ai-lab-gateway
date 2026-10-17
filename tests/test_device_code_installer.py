@@ -80,7 +80,9 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(cli.read_bytes()).hexdigest(),
                          expected.group(1))
         self.assertRegex(bootstrap, r'LOCAL_CLI_COMMIT="[0-9a-f]{40}"')
-        self.assertIn('"$LOCAL_CLI_URL" --output "$local_cli"', bootstrap)
+        self.assertIn('download "$LOCAL_CLI_URL" "$local_cli"', bootstrap)
+        self.assertIn("--proto '=https' --proto-redir '=https'", bootstrap)
+        self.assertIn("wget --quiet --https-only", bootstrap)
         self.assertIn('sudo -- install -o ai-gateway -g ai-gateway -m 0700', bootstrap)
         self.assertIn('"$home/.local/bin/ailab"', bootstrap)
         self.assertNotIn('sudo -n bash', bootstrap)
