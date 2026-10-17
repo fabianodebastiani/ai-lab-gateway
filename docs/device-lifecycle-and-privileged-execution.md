@@ -168,6 +168,31 @@ not currently verified as deployed. It must serve only signed/versioned,
 independently integrity-checked installer content and must never inject
 dynamic privileged shell from the enrollment endpoint.
 
+## 2026-10-16 — draft privilege integration checkpoint (NOT deployed)
+
+[Draft PR #10](https://github.com/fabianodebastiani/ai-lab-gateway/pull/10)
+now contains: root-only signer integrated into the **existing independent human
+password/TOTP approval socket**; a separately protected, explicit
+per-device issuer allowlist; device-local one-use signature verifier;
+a feature-gated OAuth/per-device MCP privilege request/execute flow that
+streams the signed voucher through SSH stdin **without revealing it
+to the model**; two *local-admin-only* bootstraps with digest/fingerprint,
+visudo checks and rollback; synthetic CI and legacy broker/web regressions.
+
+**Do not confuse these repository artifacts with live capabilities:**
+no production Oracle signer key has been provisioned, no target sudoers
+rule has been activated, no Auth0 target privilege permission has been
+granted, and no real human-approved target root execution has occurred.
+The only live second-VM privilege test remains **denial** as the ordinary
+ai-gateway user. Maintain PR #10 as draft until independent review,
+approved local-admin installation and end-to-end testing.
+
+The three profiles remain Restricted/Partial/Unrestricted. Single-use
+exact-command approval is still an orthogonal privilege mechanism.
+A previously issued signed voucher cannot yet be remotely revoked on an
+offline device; current isolated voucher lifetime is capped at 300s.
+Immediate post-issuance revocation is a future acceptance requirement.
+
 ## Publication discipline
 
 This file is the canonical cross-feature contract. When any connected
