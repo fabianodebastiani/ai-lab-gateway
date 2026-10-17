@@ -20,7 +20,7 @@ Single-use exact-command approval is NOT a fourth access profile. SSH connection
 
 The module [signed_profile_grants.py](../src/ai_lab_gateway/signed_profile_grants.py) currently provides:
 
-- Versioned JSON envelope with precise required fields, duplicate-key rejection, payload length bound, strict device/subject identity, fixed capabilities, approved method label, generation ID, approved durations and expiration.
+- Versioned JSON envelope with precise required fields, duplicate-key rejection, payload length bound, strict expected device and authenticated OAuth subject, fixed capabilities, approved method label, generation ID, approved durations and expiration.
 - Detached Ed25519 verification over canonical JSON with a protocol-specific domain separator. The 32-byte trusted public key is supplied by an external trusted local actor, **never learned from the authorization packet**.
 - Pure assessment against caller-supplied root-owned revocation generation, revoked grant identifiers and trusted clock floor. The module **does not** create or persist this trusted state.
 - Expired Partial grants fail closed. A moved-backwards clock relative to the supplied trusted floor fails closed.
@@ -43,7 +43,7 @@ The module [signed_profile_grants.py](../src/ai_lab_gateway/signed_profile_grant
 
 Run: python -m pytest -q tests/test_signed_profile_grants.py
 
-The 44 local tests use disposable, in-memory Ed25519 keys and deterministic timestamps. They do not touch root, SSH, Auth0, Oracle, real signing keys or service policies. A dedicated GitHub workflow repeats these tests on each relevant PR/push.
+The 45 local tests use disposable, in-memory Ed25519 keys and deterministic timestamps. They do not touch root, SSH, Auth0, Oracle, real signing keys or service policies. A dedicated GitHub workflow repeats these tests on each relevant PR/push.
 
 **Next incremental implementation:** root-owned state and short renewable lease verification in synthetic fixtures only; then a separately reviewed issuer backed by independent consent, MCP operations, and eventually a narrowly deployed target executor on the disposable Oracle.
 
