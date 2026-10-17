@@ -160,3 +160,56 @@ The preflight GitHub raw artifact and digest were independently
 verified via the live Gateway nonroot MCP account. **Do not infer**
 that the final PR branch head/future revised script has the same
 digest: this command is locked to the exact commit above.
+
+
+## 2026-10-16 São Paulo — actual Gateway signer prepared, target not installed yet
+
+**Explicit original local `ubuntu` administrator operation SUCCESSFUL** on the
+Gateway `ai-lab-gateway-01`:
+
+- The previously verified pinned local `install_target_issuer.py --check`
+  returned `DRY_RUN_OK: eligible registered target; nothing changed`.
+- The human then separately executed `--apply`; returned
+  `ISSUER_PREPARED: root-owned, one enabled target; no human approval issued`.
+- The **public** (not private) signing key fingerprint is:
+  `SHA256:r0E6FcgCHXL0/bOarLK9gP4QQK6BFDaDiUDfUCBXW6E`.
+- Public SSH Ed25519 key:
+  `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDGVKpXLqOIGRXuYF9Z1T7HZ9Xv+CpH1b00zhTHSzckp`
+  (public key independently recomputed to match fingerprint).
+- The issuer **private** key remains on the Gateway under
+  `/etc/ai-lab-target-issuer/issuer_ed25519` root-only. Never copy
+  it to targets or Git. The trust directory exists `root:root 0700`.
+- Read-only Gateway MCP checks after this step:
+  `ai-lab-gateway`, `ai-lab-privilege-broker`,
+  `ai-lab-approval-web` services are all `active`; `ai-maintenance`
+  continues to have **no sudo**. No new broker deployment, API privilege
+  action, human approval or service restart was performed.
+- Second Oracle VM via MCP: `ai-lab-experiments-01` reachable as
+  `ai-gateway`, SSH user unit `active`, no target executor yet.
+
+**New predeployment correction:** Minimal Ubuntu second VM has no
+`/usr/local/libexec`. The target installer now supports creating that
+root-owned non-writable directory with explicit rollback on failure.
+GitHub Actions tests for the missing-directory path, visudo refusal and
+rollback completed successfully.
+
+Target files frozen to Git commit
+`930b288f5cf661e2883a68e032f27ffecc78790b`:
+`scripts/install_target_privexec.py` SHA256
+`cef19bc7bdcaf24d17051eb2d47bc5b3124b931ade0f08d6143d8e75a795788b`;
+`scripts/ai-lab-target-privexec` SHA256
+`d94660a4e1a925d50fd3bd2fda02408cf5300458ad0ddd85498ba4203bdea632`.
+Both source files downloaded anonymously over pinned GitHub commit,
+hashed and Python compiled via Gateway read-only MCP; dedicated workflow
+for that head completed success. Do not substitute mutable branch URL.
+
+**NEXT HUMAN ACTION:** original `ubuntu` console of SECOND Oracle
+(`ai-lab-experiments-01`) verifies these exact hashes plus signer public
+fingerprint locally, then grants the **single path no-argument sudoers**
+allowance via tested local installer with explicit human administrator sudo.
+The safe negative test using the normal MCP after installation must return
+denied for unsigned or absent voucher, while `sudo -n id -u` continues
+to be denied. Gateway broker/MCP runtime is not yet updated.
+
+**Note**: an installed verifier plus trusted public key is not consent
+or entitlement to administrative work. The three profiles remain unchanged.
