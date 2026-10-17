@@ -153,7 +153,6 @@ def test_valid_human_decision_replay_still_denied_after_db_reopen(rig):
     {'device_id':'windows-wsl'},{'subject':'auth0|other'},
     {'grant_id':'f'*64},{'generation':True},
     {'generation':999},{'capability':'sudo-shell'},
-    {'boot_id':'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'},
     {'requested_at':NOW+31},{'requested_at':NOW-91},
     {'requested_at':True},{'request_id':'../../'},
 ])
@@ -310,7 +309,8 @@ def test_repeated_device_requests_under_parallel_workers_single_lease(rig):
         process.join(timeout=20)
         assert process.exitcode==0
     assert sum(outcome[0]=='success' for outcome in outcomes)==1
-    assert sum('UNIQUE' in outcome[1] for outcome in outcomes)==7
+    assert sum(isinstance(outcome[1], str) and 'UNIQUE' in outcome[1]
+               for outcome in outcomes)==7
 
 
 def test_all_valid_partial_duration_values(rig):
@@ -334,3 +334,21 @@ def test_claim_is_not_a_sudo_command_or_shell(rig):
     assert claim['capabilities']==['root-identity-check']
     assert 'shell' not in parent.decode().lower()
     assert not hasattr(rig[0],'execute_root')
+
+
+
+def test_target_rejects_issuer_lease_bound_to_different_signed_boot(rig):
+    # Issuer cannot independently know a target's current boot. The pinned
+    # device key authenticates its request; the LOCAL root verifier enforces
+    # that its own kernel boot_id matches that signed request.
+    app,_,device=rig
+    parent,claim=approved_grant(rig)
+    different_boot='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    issued=app.renew_short_lease(parent,
+        renewal_packet(device,claim,boot_id=different_boot),
+        expected_subject=SUBJECT,expected_device=DEVICE,now=NOW)
+    grant=verify_signed_grant(parent,trusted_public_key=app.issuer_public,
+        expected_device=DEVICE,expected_subject=SUBJECT,now=NOW)
+    with pytest.raises(PermissionError,match='boot|bound'):
+        verify_short_lease(issued,trusted_public_key=app.issuer_public,
+                           grant=grant,expected_boot_id=BOOT,now=NOW)
