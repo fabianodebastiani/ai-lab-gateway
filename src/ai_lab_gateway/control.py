@@ -13,7 +13,7 @@ from .connection_control import read_connection, update_persistent_flag, persist
 from .auth import VerifiedIdentity
 from .authz import AuthorizationPolicy, Principal
 from .registry import DeviceRegistry
-from .ssh_exec import CommandResult, execute
+from .ssh_exec import CommandResult, execute, execute_privileged_one_use
 
 
 def _shell_quote(value: str) -> str:
@@ -189,5 +189,30 @@ class ControlPlane:
                 action="exec",
                 success=success,
                 duration_ms=duration_ms,
+                exit_code=result.exit_code if result else None,
+            ))
+
+
+    def execute_target_privilege(self, identity: VerifiedIdentity, device_id: str,
+                                 voucher: dict) -> CommandResult:
+        """Use the dedicated, authenticated privilege action, never normal exec."""
+        self._authorize(identity, device_id, "target_privilege_execute", "gateway:control")
+        if (not isinstance(voucher, dict) or not isinstance(voucher.get("permit"), dict)
+                or voucher["permit"].get("subject") != identity.subject
+                or voucher["permit"].get("device_id") != device_id):
+            raise PermissionError("privilege voucher belongs to another subject/device")
+        device = self.registry.get(device_id)
+        started = monotonic()
+        result: CommandResult | None = None
+        success = False
+        try:
+            result = execute_privileged_one_use(device, voucher)
+            success = result.exit_code == 0
+            return result
+        finally:
+            self.audit.append(AuditEvent(
+                subject=identity.subject, device_id=device_id,
+                action="target_privilege_execute", success=success,
+                duration_ms=int((monotonic() - started) * 1000),
                 exit_code=result.exit_code if result else None,
             ))
