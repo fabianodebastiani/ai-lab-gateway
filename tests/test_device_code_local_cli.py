@@ -120,9 +120,10 @@ class LocalAilabTests(unittest.TestCase):
              patch.object(cli, "details", return_value={"ActiveState":"active"}), \
              patch.object(cli, "start_transient") as launch, \
              patch.object(cli, "systemd") as systemctl, \
+             patch.object(cli, "status", return_value="connected=yes\npersistent=off"), \
              patch.object(cli, "unit_file", return_value=self.home / "missing"):
             result = cli.act("connect")
-        self.assertIn("connected=yes", result) if "connected=yes" in result else None
+        self.assertIn("connected=yes", result)
         launch.assert_not_called()
         systemctl.assert_not_called()
 
