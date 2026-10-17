@@ -1,0 +1,32 @@
+name: Linux one-command restricted installer (isolated)
+on:
+  push:
+    branches: [feat/linux-one-command-v1]
+    paths:
+      - 'scripts/install_ai_lab_device.sh'
+      - 'tests/test_one_command_installer.py'
+      - '.github/workflows/linux-first-run-lab.yml'
+  pull_request:
+    paths:
+      - 'scripts/install_ai_lab_device.sh'
+      - 'tests/test_one_command_installer.py'
+      - '.github/workflows/linux-first-run-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-installer-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: POSIX shell syntax and offline preflight/wrapper acceptance
+        run: python -m unittest discover -s tests -p test_one_command_installer.py -v
+      - name: Explicitly forbid remote root provisioning during pairing
+        run: |
+          ! grep -Eq 'sudo[[:space:]]+(-n[[:space:]]+)?(bash|sh)([[:space:]]|$)|NOPASSWD:[[:space:]]*ALL|curl[[:space:]]*\|[[:space:]]*sudo' scripts/install_ai_lab_device.sh
