@@ -36,6 +36,17 @@ OPERATIONS = {
     # Read-only, fixed-argument privileged diagnostics for the v2 pairing unit.
     # Approval is single-use; no caller-supplied argv, paths, or shell.
     "pairing-service-journal": ("/usr/bin/journalctl", "--unit=ai-lab-pairing.service", "--no-pager", "--lines=60", "--output=short-iso"),
+    # Narrow privileged read-only inspection, requested over authenticated MCP
+    # and approved through the independent password + TOTP web interface.
+    # This NEVER grants sudo or accepts any caller-supplied path or argument.
+    "oracle-ssh-protected-paths": (
+        "/usr/bin/stat", "-c", "%n | %F | %U:%G | %a",
+        "/var/lib/ai-lab-tunnel/.ssh",
+        "/var/lib/ai-lab-tunnel/.ssh/authorized_keys",
+        "/var/lib/ai-lab-gateway/.ssh",
+        "/var/lib/ai-lab-gateway/.ssh/known_hosts",
+        "/etc/ai-lab-gateway/devices.json",
+    ),
 }
 MAX_TTL = 86400
 MAX_REQUEST_BYTES = 16384
