@@ -26,7 +26,8 @@ from .oauth_metadata import ProtectedResourceMetadataOverride
 from .registry import DeviceRegistry
 from .scope_stepup import OAuthScopeStepUp
 from .studio_bridge import query as studio_query
-from mcp.types import ImageContent
+from mcp.server.mcpserver import Image
+import base64
 
 auth_config = AuthConfig.from_env()
 token_verifier = Auth0TokenVerifier(auth_config)
@@ -187,14 +188,14 @@ def studio_list_media(product_key: str) -> dict:
 
 
 @mcp.tool()
-def studio_get_media_preview(product_key: str, media_id: str) -> ImageContent:
+def studio_get_media_preview(product_key: str, media_id: str) -> Image:
     """Return a validated, resized JPEG for an image linked to this product.
 
     Videos aren't decoded by this tool. Video frames are planned for M5.
     """
     result = studio_query(_control_plane(), _verified_identity(), "get_image_preview",
                           product_key=product_key, media_id=media_id)
-    return ImageContent(type="image", data=result["image_base64"], mimeType="image/jpeg")
+    return Image(data=base64.b64decode(result["image_base64"], validate=True), format="jpeg")
 
 
 def _authorize_privilege_request():
