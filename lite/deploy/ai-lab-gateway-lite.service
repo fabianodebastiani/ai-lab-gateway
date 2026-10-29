@@ -1,0 +1,28 @@
+[Unit]
+Description=AI Lab Gateway Lite MCP and Admin UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai-lab-gateway-lite
+Group=ai-lab-gateway-lite
+WorkingDirectory=/opt/ai-lab-gateway-lite
+EnvironmentFile=/etc/ai-lab-gateway-lite/gateway.env
+ExecStart=/opt/ai-lab-gateway-lite/.venv/bin/ai-lab-gateway-lite
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/ai-lab-gateway-lite
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
