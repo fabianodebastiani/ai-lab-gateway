@@ -2,7 +2,7 @@
 
 An independently deployable MCP gateway for authorized ChatGPT users to access registered Linux devices over an existing WireGuard network.
 
-Status: initial implementation, not deployed. This directory will become a standalone private GitHub repository after testing.
+Status: initial implementation, not deployed. This directory currently lives in a **PUBLIC development branch** of the original repository. The Lite will be born as a **PRIVATE standalone repository** when exported via a clean snapshot. The original repository stays public for now.
 
 ## Boundaries
 
