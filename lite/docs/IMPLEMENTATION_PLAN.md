@@ -4,7 +4,9 @@
 
 - Initial development branch: gateway-lite, cut from main.
 - Future standalone repository: private, shared with invited collaborators.
-- Original repo: private only after public installer dependencies are migrated.
+- Original repo: remain PUBLIC for now; reassess privacy separately after public installer dependencies are migrated.
+- Lite transfer: create the standalone GitHub repository with PRIVATE visibility from its very first commit; explicitly invite authorized collaborators.
+- Google social login: Auth0's shared development social keys permitted only for isolated development and controlled test users. Before real operational traffic, switch to dedicated Google OAuth credentials, even if Auth0 Free still meets limits.
 - VM: separate Oracle Cloud Always Free instance, within usage limits.
 - Hostname: ai-gateway-lite.debasti.com, HTTPS via Caddy.
 - Identity: existing Auth0 tenant + Google login; distinct Lite resource/API and web app.
