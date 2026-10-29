@@ -43,8 +43,8 @@ def validate_device(device: Device, networks: tuple | None = None) -> None:
         raise ValueError("invalid device name")
     if not 1 <= device.port <= 65535:
         raise ValueError("invalid SSH port")
-    if not USER_RE.fullmatch(device.ssh_user):
-        raise ValueError("invalid SSH user")
+    if not USER_RE.fullmatch(device.ssh_user) or device.ssh_user == "root":
+        raise ValueError("SSH user must be a valid non-root account")
     if not KEY_RE.fullmatch(device.key_name) or device.key_name.startswith(".") or ".." in device.key_name:
         raise ValueError("invalid SSH key name")
     ip = ipaddress.ip_address(device.host)  # DNS names are intentionally forbidden
