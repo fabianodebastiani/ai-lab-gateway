@@ -1,0 +1,21 @@
+# The future standalone PRIVATE repository must never contain runtime secrets.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_ed25519*
+known_hosts
+*.sqlite
+*.sqlite3
+*.db
+audit.jsonl
+*.log
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/
