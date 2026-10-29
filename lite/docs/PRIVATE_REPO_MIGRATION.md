@@ -10,7 +10,7 @@ The original AI Lab Gateway remains PUBLIC for now. Development of Lite occurs u
 
 1. In GitHub, create a NEW EMPTY repository named `ai-lab-gateway-lite`, set **Private** in the creation form, and confirm visibility before the first push. Do not create it publicly and convert it afterward.
 2. Invite only specific GitHub collaborators. Access to source code does not automatically authorize anyone to use the running MCP.
-3. From a trusted local clone of the original repository, run `./lite/scripts/export_private_snapshot.sh /path/to/new-empty-directory` on the `gateway-lite` branch to export ONLY the files in `lite/`. This exports a CLEAN source snapshot, not the original Git history.
+3. From a trusted local clone of the original repository, run `bash lite/scripts/export_private_snapshot.sh /path/to/new-empty-directory` on the `gateway-lite` branch to export ONLY the files in `lite/`. This exports a CLEAN source snapshot, not the original Git history.
 4. Review the exported directory with a secret scanner (for example gitleaks or GitHub secret scanning) and manually inspect env/config examples, SSH keys and domain references.
 5. Inside the exported directory, initialize a NEW Git repository, commit the snapshot, add the new PRIVATE GitHub remote, and push only after verifying the remote is private.
 6. Configure private-repository GitHub Actions and collaborator access policies. Never publish GitHub Actions artifacts containing live database, SSH credentials or access tokens.
