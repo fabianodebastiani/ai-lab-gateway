@@ -28,7 +28,7 @@ def test_administrator_can_add_device_and_grant_access(tmp_path, monkeypatch):
     signed = TimestampSigner(secret).sign(data).decode()
 
     with TestClient(create_panel(store), base_url=base) as client:
-        client.cookies.set("lite_admin_session", signed, domain="ai-gateway-lite.debasti.com", secure=True)
+        client.cookies.set("lite_admin_session", signed, domain="ai-gateway-lite.debasti.com")
         response = client.get("/admin")
         assert response.status_code == 200
         assert "Natan" in response.text
