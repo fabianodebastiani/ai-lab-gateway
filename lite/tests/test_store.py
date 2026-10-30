@@ -60,3 +60,45 @@ def test_allowlist_required(monkeypatch):
 def test_cannot_grant_unknown_action(store):
     with pytest.raises(ValueError):
         store.set_grant("a", "b", "sudo", True)
+
+def test_self_ssh_pilot_is_disabled_by_default(store, monkeypatch):
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.1/32")
+    monkeypatch.delenv("LITE_ENABLE_LOOPBACK_TARGET", raising=False)
+    with pytest.raises(ValueError):
+        store.save_device(Device("self", "Local test", "127.0.0.1", 22, "lite-target", "self"))
+
+
+def test_self_ssh_pilot_exact_opt_in(store, monkeypatch):
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.1/32")
+    monkeypatch.setenv("LITE_ENABLE_LOOPBACK_TARGET", "1")
+    device = Device("self", "Local test", "127.0.0.1", 22, "lite-target", "self")
+    store.save_device(device)
+    assert store.get_device("self") == device
+
+
+@pytest.mark.parametrize("host,port,user", [
+    ("127.0.0.2", 22, "lite-target"),
+    ("::1", 22, "lite-target"),
+    ("127.0.0.1", 2222, "lite-target"),
+    ("127.0.0.1", 22, "ai-gateway"),
+    ("127.0.0.1", 22, "ubuntu"),
+])
+def test_self_ssh_pilot_does_not_expand_trust(store, monkeypatch, host, port, user):
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.0/8,::1/128")
+    monkeypatch.setenv("LITE_ENABLE_LOOPBACK_TARGET", "1")
+    with pytest.raises(ValueError):
+        store.save_device(Device("self", "Local test", host, port, user, "self"))
+
+
+def test_self_ssh_pilot_requires_explicit_approved_address(store, monkeypatch):
+    monkeypatch.setenv("LITE_ENABLE_LOOPBACK_TARGET", "1")
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "10.200.0.0/24")
+    with pytest.raises(ValueError):
+        store.save_device(Device("self", "Local test", "127.0.0.1", 22, "lite-target", "self"))
+
+
+def test_self_ssh_pilot_does_not_allow_public_target(store, monkeypatch):
+    monkeypatch.setenv("LITE_ENABLE_LOOPBACK_TARGET", "1")
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.1/32,8.8.8.8/32")
+    with pytest.raises(ValueError):
+        store.save_device(Device("remote", "Public", "8.8.8.8", 22, "lite-target", "remote"))
