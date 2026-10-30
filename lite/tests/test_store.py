@@ -102,3 +102,9 @@ def test_self_ssh_pilot_does_not_allow_public_target(store, monkeypatch):
     monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.1/32,8.8.8.8/32")
     with pytest.raises(ValueError):
         store.save_device(Device("remote", "Public", "8.8.8.8", 22, "lite-target", "remote"))
+
+def test_self_ssh_rejects_broad_loopback_allowlist(store, monkeypatch):
+    monkeypatch.setenv("LITE_ENABLE_LOOPBACK_TARGET", "1")
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.0/8")
+    with pytest.raises(ValueError):
+        store.save_device(Device("self", "Local test", "127.0.0.1", 22, "lite-target", "self"))
