@@ -5,9 +5,10 @@ Status: PREPARED ONLY, not deployed. The original AI Lab Gateway and the Oracle 
 ## Architecture
 
 ChatGPT / browser -> HTTPS 443 -> ai-gateway-lite.debasti.com -> Caddy -> localhost:8010 -> Lite MCP + admin UI.
-Lite -> existing WireGuard private network -> dedicated non-root SSH account on permitted Linux targets.
+INITIAL PILOT: Lite -> local 127.0.0.1:22 OpenSSH -> distinct no-sudo `lite-target` account on the same VM.
+FUTURE MULTI-DEVICE: Lite -> existing WireGuard private network -> non-root SSH accounts on approved targets.
 
-WireGuard peer configuration, target access and private routing are maintained separately and are NOT managed by the Lite.
+WireGuard peer configuration, target access and private routing are maintained separately and are NOT managed by the Lite. No WireGuard is needed or planned for the initial pilot.
 
 ## What is ready
 
@@ -51,9 +52,10 @@ After the basic MCP tests succeed, evaluate enabling Cloudflare Proxy (orange cl
 
 ## Natan VM prerequisite checklist
 
-- Independent machine: Ubuntu 24.04 preferred (x86_64 or ARM64 supported by Python dependencies), with sudo available to the VM administrator for one-time service setup.
+- Real target: Natan's `godel-testes-01-vnic`, Ubuntu 22.04.5 x86_64 (2 vCPU, ~1 GB RAM, ~39 GB free), with local sudo for one-time service setup; preserve the existing `smartgrid` service and ports 3031/8080.
+- Install Python 3.12 separately without replacing Ubuntu 22.04's default Python 3.10.
 - VM's public IPv4, SSH administrative access (kept private), and current free resources.
-- WireGuard peer active; confirm which private CIDR and target IPs the VM can reach.
+- Initial target is this very VM via SSH at `127.0.0.1:22`, with dedicated non-sudo `lite-target` identity and pinned SSH host key. Do NOT configure WireGuard in this phase. Enable the separately guarded loopback pilot flag and an exact `127.0.0.1/32` allowlist.
 - Dedicated `ai-lab-gateway-lite` system identity, separate code/config/SQLite directories.
 - Dedicated private Ed25519 SSH keys, pinned host fingerprints, target's non-root account.
 - Auth0 domain, Lite Admin client ID, and the client secret installed only on the VM in a protected environment file; Lite initial administrator's stable Auth0 subject ID (not email) in that same protected runtime configuration.
@@ -61,16 +63,25 @@ After the basic MCP tests succeed, evaluate enabling Cloudflare Proxy (orange cl
 
 ## Implementation sequence on the dedicated VM
 
-1. Validate VM OS, disk, memory, public IP and WireGuard connectivity (read-only).
+1. Validate VM OS, disk, memory, public IP, currently occupied services and local sshd (read-only). Do not configure WireGuard.
 2. Install and configure only the isolated Lite service; do not use production Gateway's directories or keys.
 3. Check unit tests, then local 127.0.0.1:8010 endpoints.
 4. Create DNS A record; enable Caddy and confirm valid TLS.
 5. Verify Google/Auth0 admin login, unapproved-user denial and access-grant workflow.
-6. Connect two distinct ChatGPT users, check scopes, device isolation, SSH operations, and immediate revocation.
-7. Only after acceptance, export the Lite into a NEW PRIVATE GitHub repo using docs/PRIVATE_REPO_MIGRATION.md.
+6. First register the same VM as `local-pilot` and test real SSH to `127.0.0.1:22` under the dedicated no-sudo `lite-target` user. Then connect two distinct ChatGPT users and check scopes, grants, command/file operations, and immediate revocation.
+7. Before server deployment, export only Lite source to the confirmed new PRIVATE GitHub repo; do not reuse the public original history. Do not choose between similarly named private repositories until the owner confirms the exact destination.
 
 ## Temporary test alternative
 
 If the dedicated VM becomes unavailable, a temporary instance of the Lite could run on the existing experimental Oracle VM on a **separate loopback port, service account, database, and domain**, with an explicit removal plan. However this VM hosts other ongoing services and is not recommended as the default. The original Oracle Gateway must never be used for this test.
 
 No temporary test has been started; no DNS/VM change has been performed.
+
+## Verified observations on 2026-10-30
+
+- DNS `ai-gateway-lite.debasti.com` resolved to `147.15.110.165` (Natan VM, subject to admin confirmation).
+- Original device-code pairing completed with device ID `godel-testes-01-vnic-153e7b3e` via the original Gateway MCP and was verified online as the no-sudo `ai-gateway` user.
+- OS: Ubuntu 22.04.5, Python 3.10.12, architecture x86_64; 2 vCPUs, ~956 MiB RAM, ~2 GB swap, ~39 GB disk free.
+- Existing service `smartgrid`, listeners 0.0.0.0:3031 and 127.0.0.1:8080. Port 8010 is currently free. No WireGuard interface or wg command installed, by design for the pilot.
+- The separate GitHub names `ai-lab-lite` and `ai-gateway-lite` both exist as private repositories and are empty; confirm destination before the code snapshot.
+- This is a plan/code adjustment only. No target account, SSH key, Lite service, Python runtime, Caddy, firewall or WireGuard configuration has been changed on Natan's VM.
