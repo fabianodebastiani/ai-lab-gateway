@@ -48,10 +48,18 @@ def validate_device(device: Device, networks: tuple | None = None) -> None:
     if not KEY_RE.fullmatch(device.key_name) or device.key_name.startswith(".") or ".." in device.key_name:
         raise ValueError("invalid SSH key name")
     ip = ipaddress.ip_address(device.host)  # DNS names are intentionally forbidden
-    if ip.is_global or ip.is_loopback or ip.is_multicast or ip.is_unspecified or ip.is_link_local:
-        raise ValueError("SSH device must use an internal WireGuard IP")
+    if ip.is_loopback:
+        # Isolated self-SSH pilot only: no WireGuard, no public SSH target and no
+        # reuse of the original ai-gateway management identity. This exception
+        # requires BOTH an explicit opt-in and a /32 network allowlist.
+        if (str(ip) != "127.0.0.1"
+                or os.environ.get("LITE_ENABLE_LOOPBACK_TARGET") != "1"
+                or device.port != 22 or device.ssh_user != "lite-target"):
+            raise ValueError("loopback SSH pilot requires explicit opt-in, 127.0.0.1:22 and lite-target")
+    elif ip.is_global or ip.is_multicast or ip.is_unspecified or ip.is_link_local:
+        raise ValueError("SSH device must use an approved internal IP")
     if not any(ip in net for net in (networks if networks is not None else allowed_networks())):
-        raise ValueError("SSH address is outside approved WireGuard CIDRs")
+        raise ValueError("SSH address is outside approved SSH CIDRs")
 
 
 class Store:
