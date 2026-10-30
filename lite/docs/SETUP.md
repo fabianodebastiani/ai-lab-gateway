@@ -1,6 +1,6 @@
 # Isolated deployment runbook (DO NOT deploy to the existing Gateway)
 
-All steps below refer to a NEW Ubuntu 24.04 VM. WireGuard installation, routing, and firewall for the VPN are outside the Lite project.
+The initial pilot runs on Natan's existing Ubuntu 22.04 VM, with Python 3.12 installed separately (do not replace system Python 3.10). The first SSH device is this SAME VM, reached over 127.0.0.1:22 using a separate non-sudo `lite-target` login. **No WireGuard is required during the pilot.** The later multi-device production design uses pre-existing WireGuard routing managed outside the Lite project. Preserve the existing `smartgrid` service, port 3031, and locally bound service on 8080.
 
 ## 1. DNS and HTTPS
 
@@ -33,9 +33,22 @@ Copy .env.example to /etc/ai-lab-gateway-lite/gateway.env and replace ALL placeh
 
 Install deploy/ai-lab-gateway-lite.service under systemd with a dedicated, non-root User and Group. Install the Caddyfile for the Lite hostname, keep Python listening at 127.0.0.1:8010, and verify local firewall rules before restarting Caddy.
 
-## 4. WireGuard + SSH targets
+## 4. Initial pilot: same-host SSH (no WireGuard)
 
-1. Independently configure the new VM as a WireGuard peer so it can route to each intended Linux host.
+The initial end-to-end target is the Lite VM itself; the transport must still be a REAL OpenSSH client/server connection, never direct local shell execution.
+
+1. The VM administrator provisions a dedicated `lite-target` non-root account, with **no sudo, no privileged groups and no access to the original `ai-gateway` user's SSH material**. The separate service identity `ai-lab-gateway-lite` must have no interactive login or general sudo.
+2. Create a new per-device Ed25519 key in the Lite runtime-owned keys directory. Install ONLY the PUBLIC half in `lite-target`'s `authorized_keys`; keep the private half in Lite's 0700-owned key directory, mode 0600.
+3. Verify the VM's real sshd Ed25519 host public key through the local admin channel; pin it explicitly for `127.0.0.1` in Lite's private `known_hosts`. Never enable `StrictHostKeyChecking=no`.
+4. In the protected service environment, set `LITE_ALLOWED_SSH_CIDRS=127.0.0.1/32` and `LITE_ENABLE_LOOPBACK_TARGET=1` — both required. This pilot exception accepts ONLY `127.0.0.1:22` as SSH destination and `lite-target` as SSH user; it rejects localhost aliases and ordinary public addresses.
+5. Register `local-pilot` with `host=127.0.0.1`, `port=22`, `ssh_user=lite-target` and the basename of the new private key. Initial access grants are empty.
+6. Verify real SSH `hostname`, read-only commands, then separately authorized harmless file-write/read/cleanup in `/home/lite-target/`. Test SSH host-key rejection, revoked grants, user separation and device disable. **Do not use this pilot to modify Caddy, systemd, the smartgrid service, the original `ai-gateway` account, root files or sudoers.**
+
+To restore normal WireGuard-only restrictions, remove `LITE_ENABLE_LOOPBACK_TARGET` and replace `LITE_ALLOWED_SSH_CIDRS` with the independently maintained private VPN CIDRs. Without the explicit flag, loopback remains rejected.
+
+## 4b. Later: WireGuard + SSH targets
+
+1. At a later stage only, independently configure the VM as a WireGuard peer so it can route to each intended Linux host.
 2. For each device, provision a dedicated non-root SSH target account without sudo; create one management Ed25519 keypair on the Lite VM under its key directory. Never share a private key across hosts.
 3. Install ONLY the corresponding public key in that target account's authorized_keys.
 4. Obtain the SSH target host key fingerprint over a separate trusted channel. Verify it manually before adding the exact host-key entry to the Lite VM's known_hosts file. Never automatically accept unknown SSH hosts.
