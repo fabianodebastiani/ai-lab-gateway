@@ -56,3 +56,13 @@ def test_limit_timeout_and_payload(device):
         execute(device, "id", 301)
     with pytest.raises(ValueError):
         execute(device, "cat", 30, "a" * 65537)
+
+def test_self_ssh_still_requires_pinned_key_and_host(device, monkeypatch):
+    monkeypatch.setenv("LITE_ENABLE_LOOPBACK_TARGET", "1")
+    monkeypatch.setenv("LITE_ALLOWED_SSH_CIDRS", "127.0.0.1/32")
+    local = Device("local", "Self SSH", "127.0.0.1", 22, "lite-target", "linux-a")
+    args = _ssh_argv(local)
+    assert args[-2:] == ["lite-target@127.0.0.1", "--"]
+    assert "StrictHostKeyChecking=yes" in args
+    assert "IdentitiesOnly=yes" in args
+    assert "ForwardAgent=no" in args
