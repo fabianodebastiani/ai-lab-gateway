@@ -606,3 +606,48 @@ new user-facing steps. Pairing grants identity and nonroot access only.
 The per-device Restricted / Partial / Unrestricted privilege-selection flow
 remains a later, separate action under ADR-027. Legacy WSL 10002 and Raspberry
 10001 stay operational until the v2 candidate passes real end-to-end tests.
+
+## ADR-030 — Optional on-demand WireGuard SSH transport (2026-11-06)
+
+**Decision:** add an *optional* WireGuard underlay for reaching an already
+enrolled Linux device's SSH daemon from the gateway. Preserve the original
+reverse-SSH transport and all existing OAuth, subject/device/action authorization,
+per-device SSH management identities, host-key verification and audit controls.
+This extends ADR-008 without making a VPN a mandatory dependency.
+
+**Implementation boundary:** keep the device registry's loopback-only
+`tunnel_host` invariant. A dedicated systemd `.socket` unit binds
+`127.0.0.1:<assigned-port>` on the gateway and activates a non-root
+`systemd-socket-proxyd` service forwarding to the single authorized peer
+`<WireGuard-IP>:22`. The existing MCP backend continues to use its established
+loopback port and management SSH identity. Each device requires a unique
+loopback port and a specific WireGuard peer address; do not expose proxy ports
+on public interfaces. Do not share a loopback port with a concurrently enabled
+reverse SSH forward.
+
+**Connection lifecycle:** device-side WireGuard is **off at boot by default**.
+Only the local device administrator starts/stops `wg-quick@wg0` when access is
+needed; neither MCP nor a disconnected relay can start the device VPN remotely.
+The gateway's WireGuard listener and per-device loopback socket may remain
+running, but the target is unreachable when its client VPN is stopped.
+No permanent target sudo or implicit access elevation is created.
+
+**Security:** require an authorized network change, explicitly registered peer
+public keys, minimal client `AllowedIPs` (gateway address /32), a verified SSH
+host key, existing per-device management key, and unchanged MCP authorization.
+Keep gateway peer forwarding disabled unless separately approved. Keep any
+existing corporate VPN, local routes and reverse SSH devices unaffected.
+A socket proxy is a transport adapter, **not** device enrollment or a
+replacement for the policy/audit layer.
+
+**Validation:** on 2026-11-06, an experimental Linux target reached the
+gateway by WireGuard, received an authenticated SSH connection originating on
+the gateway's VPN interface, and executed commands via its existing MCP device
+registration through the local proxy. WireGuard MTU 1280 resolved SSH key
+exchange stalls observed with an automatically selected cloud MTU of 8920.
+A device with no WireGuard autostart remains an intentional on-demand target.
+
+**Rollout:** opt-in, reviewed per-device installation from
+[the WireGuard runbook](wireguard-ssh-transport.md). Do not automatically deploy
+this repository's older main branch over a production runtime containing
+unmerged features. Test failure-closed behavior and rollback before cutover.

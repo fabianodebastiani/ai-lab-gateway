@@ -2,6 +2,25 @@
 
 Experimental gateway for giving AI clients controlled, auditable command-line access to remote Linux devices.
 
+## Optional WireGuard SSH transport — validated 2026-11-06
+
+AI Lab Gateway now has an **opt-in, on-demand WireGuard transport** for Linux
+devices where reverse SSH is not preferred. The gateway's existing per-device
+SSH identity, OAuth authorization, audit and loopback-only registry path are
+preserved. A small, per-device systemd socket proxy on the gateway forwards a
+dedicated `127.0.0.1:<port>` listener to the device SSH server over WireGuard.
+The device-side WireGuard service is **disabled at boot by default** and must
+be started/stopped locally by its administrator. No new MCP privilege is granted.
+
+Live proof of concept: device-to-gateway WireGuard handshake/ping, gateway-to-device
+authenticated SSH, and MCP `device_status`/`exec` over the VPN were successful.
+The feature is optional; existing reverse SSH devices continue unchanged.
+It is **not an automatic device-pairing feature** and requires explicit device
+enrollment, host-key verification and authorization as before.
+
+See [WireGuard SSH transport and on-demand runbook](docs/wireguard-ssh-transport.md)
+and [ADR-030](docs/decisions.md#adr-030--optional-on-demand-wireguard-ssh-transport).
+
 ## Current verified status — 2026-10-16 (read before older historical checkpoints)
 
 **Repository visibility: PUBLIC** (verified through GitHub repository metadata).

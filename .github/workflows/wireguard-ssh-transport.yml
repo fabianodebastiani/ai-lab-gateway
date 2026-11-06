@@ -1,0 +1,33 @@
+name: WireGuard SSH transport (isolated)
+
+on:
+  pull_request:
+    paths:
+      - "scripts/render_wireguard_ssh_bridge.py"
+      - "tests/test_wireguard_ssh_bridge.py"
+      - ".github/workflows/wireguard-ssh-transport.yml"
+  push:
+    paths:
+      - "scripts/render_wireguard_ssh_bridge.py"
+      - "tests/test_wireguard_ssh_bridge.py"
+      - ".github/workflows/wireguard-ssh-transport.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  render-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests (no gateway credentials or live network)
+        run: python -m unittest discover -s tests -p 'test_wireguard_ssh_bridge.py' -v
+      - name: CLI smoke test (render only)
+        run: |
+          python scripts/render_wireguard_ssh_bridge.py --device-id lab-node-03 --listen-port 11002 --peer-ip 10.77.0.4 --output-dir "$RUNNER_TEMP/wg-units"
+          grep -Fx 'ListenStream=127.0.0.1:11002' "$RUNNER_TEMP/wg-units/ai-lab-wg-lab-node-03.socket"
+          grep -Fx 'User=ai-lab-gateway' "$RUNNER_TEMP/wg-units/ai-lab-wg-lab-node-03.service"
